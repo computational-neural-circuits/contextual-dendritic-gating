@@ -1,0 +1,31 @@
+[Synapse_net_static]
+dsNMDA/dt = -sNMDA/tauNMDADecay + sNMDARise*(1-sNMDA)*alphaNMDA : 1 (clock-driven)
+dsNMDARise/dt = -sNMDARise/tauNMDARise : 1 (clock-driven)
+iTotNMDA1_post = -w*gNMDA*sNMDA*(V_post-vE_pyr)/(1+exp(-(V_post-vHalfNMDA)/vSpreadNMDA)) : amp (summed)
+w : 1
+
+[Synapse_net_linear_NMDA]
+dsNMDA/dt = -sNMDA/tauNMDADecay + sNMDARise*(1-sNMDA)*alphaNMDA : 1 (clock-driven)
+dsNMDARise/dt = -sNMDARise/tauNMDARise : 1 (clock-driven)
+iTotNMDA1_post = -w*gNMDA*sNMDA*(V_post-vE_pyr)*0.2 : amp (summed)
+dx/dt = -x/tau_x : 1 (clock-driven)
+dw/dt = A_LTP*(V_post-theta_plus)*int(V_post>theta_plus)*(u_plus_post-theta_minus)*int(u_plus_post>theta_minus)*x*int(w<w_max_post) : 1 (clock-driven)
+
+[Synapse_net_linear_NMDA_static]
+dsNMDA/dt = -sNMDA/tauNMDADecay + sNMDARise*(1-sNMDA)*alphaNMDA : 1 (clock-driven)
+dsNMDARise/dt = -sNMDARise/tauNMDARise : 1 (clock-driven)
+iTotNMDA1_post = -w*gNMDA*sNMDA*(V_post-vE_pyr)*0.2 : amp (summed)
+w : 1
+
+[on_pre_static]
+sNMDARise = 1
+gTotAMPA_post += w * gAMPA
+
+
+[Synapse_silent]
+dx/dt = -x/tau_x : 1 (clock-driven)
+dw/dt = A_LTP*(V_post-theta_plus)*int(V_post>theta_plus)*(u_plus_post-theta_minus)*int(u_plus_post>theta_minus)*x*int(w<w_max_post) : 1 (clock-driven)
+
+[on_pre_silent]
+w = clip(w - A_LTD*(u_minus_post-theta_minus)*int(u_minus_post>theta_minus), w_min_post, w_max_post)
+x += 1

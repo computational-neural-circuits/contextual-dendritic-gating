@@ -1,0 +1,90 @@
+[Soma]
+dV/dt = (iL - iCoupleDend + iSomaSyn + mean_noise + noise_factor*xi_soma*pA*sqrt(second))/cSoma_pyr : volt
+dvShadow/dt = (iShadowL - iCoupleDendShadow + mean_noise + noise_factor*xi_soma*pA*sqrt(second))/cSoma_pyr : volt
+iL = -gLSoma_pyr*(V-vRest_pyr) : amp
+iShadowL = -gLSoma_pyr*(vShadow-vRest_pyr) : amp
+iCoupleDend : amp
+iCoupleDendShadow : amp
+iSomaSyn = -gTotGABA*(V-vI_pyr) : amp
+dgTotGABA/dt = -gTotGABA/tauGABA : siemens
+dx_estimator/dt = -x_estimator/rec_inhib_rate_estimator_tau : 1 
+
+[Soma_reset]
+V = vReset_pyr
+x_estimator += 1
+
+[Dend]
+dV/dt = (iDendL + iDendSyn - iCoupleSoma)/cDend_pyr : volt
+iDendL = -gLDend_pyr*(V-vRest_pyr) : amp
+iDendAMPA = -gTotAMPA*(V-vE_pyr) : amp
+iDendGABA = -gTotGABA*(V-vI_pyr) + I_ext: amp
+iDendGABArec = -gTotGABArec*(V-vI_pyr): amp
+iDendSyn = iDendAMPA + iTotNMDA + iDendGABA + iDendGABArec : amp
+dgTotAMPA/dt = -gTotAMPA/tauAMPA : siemens
+dgTotGABA/dt = -gTotGABA/tauGABA : siemens
+dgTotGABArec/dt = -gTotGABArec/tauGABA : siemens
+iTotNMDA = iTotNMDA1 + iTotNMDA2 + iTotNMDA3: amp
+iTotNMDA1 : amp
+iTotNMDA2 : amp
+iTotNMDA3 : amp
+I_ext : amp
+du_plus/dt = (-u_plus + u1)/tau_plus : volt
+du_minus/dt = (-u_minus + u1)/tau_minus : volt
+du1/dt = (-u1 + V)/tau1 : volt
+iCoupleSoma : amp
+w_max_ff : 1
+w_min_ff : 1
+w_max_rec : 1
+w_min_rec : 1
+w_tot: 1
+
+[dend_to_soma_model]
+iCoupleDend_post = - gEachCouple*(V_pre-V_post) : amp (summed)
+iCoupleDendShadow_post = - gEachCouple*(V_pre-vShadow_post) : amp (summed)
+gEachCouple : siemens
+
+[soma_to_dend_model]
+gEachCouple : siemens
+iCoupleSoma_post = - gEachCouple*(vShadow_pre-V_post) : amp (summed)
+
+
+[Synapse_net]
+dsNMDA/dt = -sNMDA/tauNMDADecay + sNMDARise*(1-sNMDA)*alphaNMDA : 1 (clock-driven)
+dsNMDARise/dt = -sNMDARise/tauNMDARise : 1 (clock-driven)
+iTotNMDA1_post = -w*gNMDA*sNMDA*(V_post-vE_pyr)/(1+exp(-(V_post-vHalfNMDA)/vSpreadNMDA)) : amp (summed)
+dx/dt = -x/tau_x : 1 (clock-driven)
+dw/dt = A_LTP*(V_post-theta_plus)*int(V_post>theta_plus)*(u_plus_post-theta_minus)*int(u_plus_post>theta_minus)*x*int(w<w_max_post) : 1 (clock-driven)
+
+[on_pre]
+sNMDARise = 1
+gTotAMPA_post += w * gAMPA
+w = clip(w - A_LTD*(u_minus_post-theta_minus)*int(u_minus_post>theta_minus), w_min_post, w_max_post)
+x += 1
+
+[on_pre_EI_context]
+gTotGABA_post += context_inhib_weight*nS
+
+[on_pre_EI_recurrent]
+gTotGABArec_post += rec_inhib_weight*nS
+
+[on_pre_EI_soma]
+gTotGABA_post += soma_inhib_weight*nS
+
+[on_pre_EI_ff]
+gTotGABA_post += ff_inhib_weight*nS
+
+
+[rate_estimator_of_ff_inhibition_model]
+dx_pop/dt = - x_pop/ff_inhib_firing_rate_estimator_tau : 1
+
+[syn_to_ff_inhibition]
+rate_post = clip(ff_inhib_gain * x_pop_pre + ff_inhib_intercept, ff_inhib_baseline, 100000) * Hz : Hz (summed)
+
+[ff_inhibition_model]
+rate : Hz
+
+[recurrent_inhibition_model]
+rate : Hz
+n_active : 1 # how many previous neurons are active
+theta : 1
+

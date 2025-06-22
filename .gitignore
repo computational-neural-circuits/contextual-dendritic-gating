@@ -1,0 +1,37 @@
+*.egg-info
+.ipynb_checkpoints
+.pytest_cache
+.vscode
+results/stdp_figures/local
+__pycache__/
+.idea/
+results/stdp_figures/
+results/other/
+dendrify_eqs_explanation_1.png
+dendrify_eqs_explanation_2.png
+drafts/
+results/nmda_spikes/
+results/noise_factor/*.pdf
+results/networkSweep/*.pdf
+results/networkSweep/
+results/local/
+results/simulation_data/
+results/PV\ sweep/
+scripts/ff_tests\ (copy)*.py
+scripts/ff_tests\ (copy)*.ipynb
+scripts/ff_tests\ copy*.py
+scripts/ff_tests\ copy*.ipynb
+scripts/sweep_results.csv
+*\ copy.py
+*\ copy.ipynb
+trash/
+scripts/trash/
+.DS*
+*.h5
+*sublime*
+*.pdf
+/results/*
+*stored_imprint*
+*.mat
+/scripts/figures/data/*
+

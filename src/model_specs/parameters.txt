@@ -1,0 +1,91 @@
+# PARAMETERS
+
+# General simulation
+sim_dt = 0.1 * ms       # timestep of the simulation
+monitor_dt = 50*ms     # timestep for monitors
+monitor_dt_weights = 250*ms     # timestep for monitors
+
+# Area
+n_somas = 400
+noise_factor = 7.0
+mean_noise = 0.11 * nA
+n_dend_each = 6
+conn_prob = 1.0
+n_contexts = 6
+
+
+# Synaptic parameters
+w0 = 0.1               # initial weights of the plastic synapses
+ff_p = 0.081
+ff_w = 11.5
+ff_bck = 0.1 * Hz
+w_max_ff = 26
+w_min_rec = 0.0
+w_max_rec = 5.0
+assembly_firing_rate = 10 * Hz
+assembly_size = 20
+
+# Normalization
+norm_dt = 5 * msecond  # time interval at which normalization occurs
+eta = 0.0025  # scaling parameter
+n_strong_ff = 4 # needed for the calculation of w_min_ff 
+
+# recurrent inhibtion
+rec_inhib_rate = 60 * Hz 
+rec_inhib_rate_estimator_threshold = 2.2
+rec_inhib_rate_estimator_tau = 750 * ms
+rec_inhib_input_threshold = 8
+rec_inhib_weight = 16
+rec_inhib_connect_pro_to_population = 0.15
+rec_inhib_connect_pro_to_dendrites = 0.06
+
+# context inhibition
+context_inhib_weight = 16
+context_inhib_rate = 400 * Hz
+
+# somatic inhibition
+soma_inhib_weight = 8
+soma_inhib_rate = 36
+
+# feedforward inhibition
+ff_inhib_weight = 4.45
+ff_inhib_firing_rate_estimator_tau = 750 * ms
+ff_inhib_gain = 0.34
+ff_inhib_intercept = -38.8
+ff_inhib_baseline = 28
+
+
+# Pyramidal neurons variables (Clopath)
+vThres_pyr = -50.0 * mvolt      # spike threshold -50
+vReset_pyr = -55.0 * mvolt      # reset value -55
+vRest_pyr = -70.0 * mvolt       # resting potential
+vE_pyr = 0.0 * mvolt            # reversal potential of excitatory input
+vI_pyr = -75.0 * mvolt          # reversal potential of inhibitory input
+refracTime_pyr = 2.0 * msecond  # refractory period
+gLSoma_pyr = 2.5 * nS                         # nS total somatic leak
+gLDend_pyr = 4.0 * nS                         # nS total dendritic leak
+gEachCouple_pyr = 4.0 * nS  # default 4.0*nS
+cSoma_pyr = 50.0 * pF                         # pF total somatic conductance
+cDend_pyr = 20.0 * pF                         # pF total dendritic conductance
+
+# Ion channels (Clopath)
+gAMPA = 0.4 * nsiemens                 # single AMPA conductance
+gNMDA = 2.5 * nsiemens                 # NMDA conductance
+gGABA = 4.0 * nsiemens                 # single GABA * conductance
+tauAMPA = 2.0 * msecond         # AMPA gating variable time constant
+tauGABA = 20.0 * msecond        # GABA gating variable time constant
+tauNMDADecay = 100.0 * msecond  # NMDA Decay time constant
+tauNMDARise = 2.0 * msecond     # NMDA rise time constant
+alphaNMDA = 0.3 * 1/msecond
+vHalfNMDA = -19.9 * mvolt       # constant in voltage-dependent magnesium block
+vSpreadNMDA = 12.48 * mvolt     # constant in voltage-dependent magnesium block
+
+# Voltage rule (Clopath)
+tau_x = 20.0 * msecond
+tau_plus = 45 * ms
+tau_minus = 15 * ms
+tau1 = 5 * msecond
+A_LTP = 10*18e-4 / mvolt**2 / second  # default: 14e-4 / mvolt**2
+A_LTD = 10*4e-4 / mvolt
+theta_minus = -65.0 * mvolt
+theta_plus = -30.0 * mvolt
