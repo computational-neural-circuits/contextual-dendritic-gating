@@ -1,8 +1,10 @@
 # Assembly-based computations through contextual dendritic gating of plasticity 
 
+[![Cached simulation data: Zenodo](https://img.shields.io/badge/Cached%20simulation%20data-Zenodo-1682D4)](https://doi.org/10.5281/zenodo.21299329)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Code style: Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![Linter: Ruff](https://img.shields.io/badge/linter-Ruff-261230.svg)](https://github.com/astral-sh/ruff)
+
 
 Brian2 simulations that accompany the paper "Assembly-based computations through contextual dendritic gating of plasticity". The repository contains the simulation code used to generate the paper figures and the accompanying model specifications.
 
