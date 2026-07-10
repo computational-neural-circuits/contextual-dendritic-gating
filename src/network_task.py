@@ -7,9 +7,11 @@ import community as community_louvain
 
 from src.handle_parameters_and_results import HandleParametersAndResults
 from src.area import Area
-from src.utils import get_firing_rate_for_single_neuron, get_assembly_neuron_ids_by_weight_and_rate
+from src.utils import (
+    get_firing_rate_for_single_neuron,
+    get_assembly_neuron_ids_by_weight_and_rate,
+)
 
-import scipy
 import os
 
 
@@ -74,12 +76,18 @@ class NetworkTask(HandleParametersAndResults):
         self.spM_somas = []
         self.spM_inputs = []
         for ii, area in enumerate(self.all_areas):
-            self.spM_somas.append(br.SpikeMonitor(area.somas, name=f"somata_monitor_{area.name}"))
+            self.spM_somas.append(
+                br.SpikeMonitor(area.somas, name=f"somata_monitor_{area.name}")
+            )
             self.network.add(self.spM_somas[-1])
             if ii < 2:
                 spM_inputs = []
-                for iu, input_units in enumerate([area.input_units_1, area.input_units_2]):
-                    spm = br.SpikeMonitor(input_units, name=f"input_monitor_{iu}_{area.name}")
+                for iu, input_units in enumerate(
+                    [area.input_units_1, area.input_units_2]
+                ):
+                    spm = br.SpikeMonitor(
+                        input_units, name=f"input_monitor_{iu}_{area.name}"
+                    )
                     spM_inputs.append(spm)
                     self.network.add(spm)
                 self.spM_inputs.append(spM_inputs)
@@ -109,11 +117,18 @@ class NetworkTask(HandleParametersAndResults):
                 self.save_dict = {**self.save_dict, **additional_dict}
 
     def set_network_state(
-        self, all_assembly_neuron_ids=None, all_assembly_inputs=None, net_state_id=0, set_bck=False
+        self,
+        all_assembly_neuron_ids=None,
+        all_assembly_inputs=None,
+        net_state_id=0,
+        set_bck=False,
+        use_variance_for_auditory=False,
     ):
         if set_bck:
             for ii, area in enumerate(self.all_areas):
-                area.start_context(0)  # does not matter which one here its just for baseline
+                area.start_context(
+                    0
+                )  # does not matter which one here its just for baseline
 
                 if ii < 2:
                     area.input_units_1[:].rates = self.parameters["ff_bck"]
@@ -132,17 +147,29 @@ class NetworkTask(HandleParametersAndResults):
         if assembly_id_1 >= 0:
             if all_assembly_inputs is None:
                 for neuron_id in all_assembly_neuron_ids[assembly_id_1]:
-                    self.all_areas[0].input_units_1[
-                        neuron_id : neuron_id + 1
-                    ].rates = self.parameters["assembly_firing_rate"]
+                    self.all_areas[0].input_units_1[neuron_id : neuron_id + 1].rates = (
+                        self.parameters["assembly_firing_rate"]
+                    )
             else:
-                print(len(all_assembly_inputs), assembly_id_1)
-                self.all_areas[0].input_units_1[:].rates = all_assembly_inputs[assembly_id_1] * Hz
+                self.all_areas[0].input_units_1[:].rates = (
+                    all_assembly_inputs[assembly_id_1] * Hz
+                )
         if assembly_id_2 >= 0:
-            for neuron_id in all_assembly_neuron_ids[assembly_id_2]:
-                self.all_areas[1].input_units_1[neuron_id : neuron_id + 1].rates = self.parameters[
-                    "assembly_firing_rate"
-                ]
+            if all_assembly_inputs is None or not use_variance_for_auditory:
+                for neuron_id in all_assembly_neuron_ids[assembly_id_2]:
+                    self.all_areas[1].input_units_1[neuron_id : neuron_id + 1].rates = (
+                        self.parameters["assembly_firing_rate"]
+                    )
+            else:
+                if assembly_id_2 >= 1000:
+                    assembly_id_2 -= 1000
+                    self.all_areas[1].input_units_1[:].rates = (
+                        all_assembly_inputs[assembly_id_2][::-1] * Hz
+                    )
+                    return
+                self.all_areas[1].input_units_1[:].rates = (
+                    all_assembly_inputs[assembly_id_2] * Hz
+                )
 
     def run_imprint(
         self,
@@ -152,7 +179,9 @@ class NetworkTask(HandleParametersAndResults):
         ignore_all_keys_with_keywords=["recall"],
     ):
         filename_for_stored_network = f"stored_imprint_{self.get_unique_paramter_and_equation_key(ignore_all_keys_with_keywords=['recall'])}"
-        path = self.get_path_to_stored_networks(file_name=filename_for_stored_network + f"_-1")
+        path = self.get_path_to_stored_networks(
+            file_name=filename_for_stored_network + f"_-1"
+        )
 
         if not os.path.isfile(path):
             self.network.store(filename=path)
@@ -163,13 +192,23 @@ class NetworkTask(HandleParametersAndResults):
 
         all_assembly_neuron_ids = self.parameters_for_run["all_assembly_neuron_ids"]
 
-        if self.check_for_results(ignore_all_keys_with_keywords=ignore_all_keys_with_keywords):
+        use_variance_for_auditory = False
+        if "use_variance_for_auditory" in self.parameters_for_run:
+            use_variance_for_auditory = self.parameters_for_run[
+                "use_variance_for_auditory"
+            ]
+
+        if self.check_for_results(
+            ignore_all_keys_with_keywords=ignore_all_keys_with_keywords
+        ):
             return self.save_dict
         elif self.only_load_results:
             return None
 
         self.set_network_state(set_bck=True)
-        self.network.run(runtime_baseline, report=report_style, report_period=report_period)
+        self.network.run(
+            runtime_baseline, report=report_style, report_period=report_period
+        )
 
         for ii, net_state_id in enumerate(all_imprint_ids):
             print(f"IMPRINT {ii}")
@@ -177,6 +216,7 @@ class NetworkTask(HandleParametersAndResults):
                 all_assembly_neuron_ids=all_assembly_neuron_ids,
                 all_assembly_inputs=all_assembly_inputs,
                 net_state_id=net_state_id,
+                use_variance_for_auditory=use_variance_for_auditory,
             )
             self.network.run(
                 runtime_imprint,
@@ -185,7 +225,9 @@ class NetworkTask(HandleParametersAndResults):
             )
 
             self.set_network_state(set_bck=True)
-            self.network.run(runtime_baseline, report=report_style, report_period=report_period)
+            self.network.run(
+                runtime_baseline, report=report_style, report_period=report_period
+            )
 
             self.create_save_dict()
             self.save_results()
@@ -195,17 +237,27 @@ class NetworkTask(HandleParametersAndResults):
 
         self.save_dict["filename_for_stored_network"] = filename_for_stored_network
         self.network.store(
-            filename=self.get_path_to_stored_networks(file_name=filename_for_stored_network)
+            filename=self.get_path_to_stored_networks(
+                file_name=filename_for_stored_network
+            )
         )
         self.save_results(ignore_all_keys_with_keywords=["recall"])
 
-    def run_recall(self, report_style=None, report_period=10 * second, recall_inputs=None):
+    def run_recall(
+        self, report_style=None, report_period=10 * second, recall_inputs=None
+    ):
         runtime_recall = self.parameters_for_run["runtime_recall"]
         recall_id = self.parameters_for_run["recall_id"]
         run_after_imprint = self.parameters_for_run["run_recall_after_imprint"]
         runtime_baseline_recall = self.parameters_for_run["runtime_baseline_recall"]
 
         all_assembly_neuron_ids = self.parameters_for_run["all_assembly_neuron_ids"]
+
+        use_variance_for_auditory = False
+        if "use_variance_for_auditory" in self.parameters_for_run:
+            use_variance_for_auditory = self.parameters_for_run[
+                "use_variance_for_auditory"
+            ]
 
         if recall_inputs is None:
             all_assembly_inputs = None
@@ -221,7 +273,6 @@ class NetworkTask(HandleParametersAndResults):
         self.only_load_results = True
         self.run_imprint()
         self.only_load_results = False
-        print(self.save_dict["filename_for_stored_network"])
 
         filename_for_stored_network = self.save_dict["filename_for_stored_network"]
         if not type(filename_for_stored_network) is str:
@@ -231,7 +282,9 @@ class NetworkTask(HandleParametersAndResults):
             filename_for_stored_network += "_-1"
 
         self.network.restore(
-            filename=self.get_path_to_stored_networks(file_name=filename_for_stored_network)
+            filename=self.get_path_to_stored_networks(
+                file_name=filename_for_stored_network
+            )
         )
 
         print(f"START RECALL")
@@ -241,6 +294,7 @@ class NetworkTask(HandleParametersAndResults):
             all_assembly_neuron_ids=all_assembly_neuron_ids,
             all_assembly_inputs=all_assembly_inputs,
             net_state_id=recall_id,
+            use_variance_for_auditory=use_variance_for_auditory,
         )
         self.network.run(
             runtime_recall,
@@ -248,7 +302,9 @@ class NetworkTask(HandleParametersAndResults):
             report_period=report_period,
         )
         self.set_network_state(set_bck=True)
-        self.network.run(runtime_baseline_recall, report=report_style, report_period=report_period)
+        self.network.run(
+            runtime_baseline_recall, report=report_style, report_period=report_period
+        )
 
         self.create_save_dict()
         self.save_results()
@@ -258,13 +314,14 @@ class NetworkTask(HandleParametersAndResults):
         weights = weights_loaded[:, context_id::6]
         G = nx.from_numpy_array(weights, create_using=nx.DiGraph)
         partition = community_louvain.best_partition(G.to_undirected(), weight="weight")
-        node_community_map = {node: community for node, community in enumerate(partition.values())}
+        node_community_map = {
+            node: community for node, community in enumerate(partition.values())
+        }
         sorted_nodes = sorted(node_community_map, key=node_community_map.get)
         W_reordered = weights[np.ix_(sorted_nodes, sorted_nodes)]
 
         fig, ax = plt.subplots()
         ax.imshow(W_reordered)
-        # plt.show()
         return sorted_nodes
 
     def sort_neurons_by_firing_rate(
@@ -325,15 +382,23 @@ class NetworkTask(HandleParametersAndResults):
             )
 
             # we only add those ids that are not yet part of the sorted ids
-            new_selected_ids = [si for si in selected_ids if si not in sorted_neuron_ids]
+            new_selected_ids = [
+                si for si in selected_ids if si not in sorted_neuron_ids
+            ]
 
             sorted_neuron_ids += new_selected_ids
 
         sorted_neuron_ids += [
-            ni for ni in range(self.parameters["n_somas"]) if ni not in sorted_neuron_ids
+            ni
+            for ni in range(self.parameters["n_somas"])
+            if ni not in sorted_neuron_ids
         ]
 
-        return sorted_neuron_ids, all_firing_rates_somas[sorted_neuron_ids, 0], selected_ids
+        return (
+            sorted_neuron_ids,
+            all_firing_rates_somas[sorted_neuron_ids, 0],
+            selected_ids,
+        )
 
     def show_spike_rasters(
         self,
@@ -362,8 +427,6 @@ class NetworkTask(HandleParametersAndResults):
                 inputs_2_time = self.save_dict[f"B_spikes_somas_t"]
                 inputs_2_i = self.save_dict[f"B_spikes_somas_i"]
             else:
-                nputs_1_time = self.save_dict[f"C_spikes_somas_t"]
-                inputs_1_i = self.save_dict[f"C_spikes_somas_i"]
                 inputs_1_time = self.save_dict[f"B_spikes_inputs_t_1"]
                 inputs_1_i = self.save_dict[f"B_spikes_inputs_i_1"]
 
@@ -380,7 +443,7 @@ class NetworkTask(HandleParametersAndResults):
                     3, sharex=True, figsize=(14, 11)
                 )
             else:
-                (ax_inputs, ax_somas) = axes[aa]
+                ax_inputs, ax_somas = axes[aa]
 
             if sorted_ids is None:
                 if sort_by_new_algorithm:
@@ -390,8 +453,10 @@ class NetworkTask(HandleParametersAndResults):
                 else:
                     area_names = [aa.name for aa in self.all_areas]
                     last_imprint_ids = self.parameters_for_run["all_imprint_ids"][-1]
-                    context_id = ontext_id = last_imprint_ids[area_names.index(area.name) * 2]
-                    sorted_neuron_ids, _, _ = self.sort_neurons_by_firing_rate(area=area)
+                    context_id = last_imprint_ids[area_names.index(area.name) * 2]
+                    sorted_neuron_ids, _, _ = self.sort_neurons_by_firing_rate(
+                        area=area
+                    )
             else:
                 sorted_neuron_ids = sorted_ids[aa]
 
@@ -413,7 +478,9 @@ class NetworkTask(HandleParametersAndResults):
 
             for ii, neuron_index in enumerate(sorted_neuron_ids):
                 spike_times_for_neuron = somas_time[somas_i == neuron_index]
-                ax_somas.vlines(spike_times_for_neuron, ymin=ii - 0.5, ymax=ii + 0.5, colors="k")
+                ax_somas.vlines(
+                    spike_times_for_neuron, ymin=ii - 0.5, ymax=ii + 0.5, colors="k"
+                )
 
             ax_inputs_1.set_title(f"Inputs (1) for {area.name}")
             ax_inputs_2.set_title(f"Inputs (2) for {area.name}")
@@ -430,7 +497,9 @@ class NetworkTask(HandleParametersAndResults):
                 if highlight_neuron_ids_between_specific_time_points is None:
                     highlight_start = 2 * bsl + rtm
                     highlight_end = (
-                        2 * bsl + rtm + self.parameters_for_run["runtime_recall"] / msecond
+                        2 * bsl
+                        + rtm
+                        + self.parameters_for_run["runtime_recall"] / msecond
                     )
                 else:
                     (
@@ -518,7 +587,9 @@ class NetworkTask(HandleParametersAndResults):
                     )
                 ]
 
-                spike_times_end_of_imprint += previous_time - (end_imprint - rcl) + 0.1 + rcl
+                spike_times_end_of_imprint += (
+                    previous_time - (end_imprint - rcl) + 0.1 + rcl
+                )
 
                 spike_times_recall = spike_times_for_neuron[
                     np.logical_and(
@@ -529,12 +600,23 @@ class NetworkTask(HandleParametersAndResults):
 
                 spike_times_recall += previous_time - start_recall + 2 * (0.1 + rcl)
 
-                ax.vlines(spike_times_start_of_imprint, ymin=ii - 0.5, ymax=ii + 0.5, colors="r")
-                ax.vlines(spike_times_end_of_imprint, ymin=ii - 0.5, ymax=ii + 0.5, colors="g")
+                ax.vlines(
+                    spike_times_start_of_imprint,
+                    ymin=ii - 0.5,
+                    ymax=ii + 0.5,
+                    colors="r",
+                )
+                ax.vlines(
+                    spike_times_end_of_imprint, ymin=ii - 0.5, ymax=ii + 0.5, colors="g"
+                )
                 ax.vlines(spike_times_recall, ymin=ii - 0.5, ymax=ii + 0.5, colors="b")
 
-                all_rates_before[tt].append(len(spike_times_start_of_imprint) / (rcl / 1000.0))
-                all_rates_end[tt].append(len(spike_times_end_of_imprint) / (rcl / 1000.0))
+                all_rates_before[tt].append(
+                    len(spike_times_start_of_imprint) / (rcl / 1000.0)
+                )
+                all_rates_end[tt].append(
+                    len(spike_times_end_of_imprint) / (rcl / 1000.0)
+                )
                 all_rates_recall[tt].append(len(spike_times_recall) / (rcl / 1000.0))
 
         avg_rate_end_of_learning = []
@@ -551,7 +633,6 @@ class NetworkTask(HandleParametersAndResults):
             sorted_rates_ids = np.argsort(all_rates)
             threshold = np.mean(sorted_rates[-8:]) / 3.0  # 8 is chosen randomly here
 
-            # print(sorted_rates.shape)
             cutoff_id = np.searchsorted(sorted_rates, threshold)
 
             selected_ids = list(sorted_rates_ids[cutoff_id:])
@@ -564,19 +645,15 @@ class NetworkTask(HandleParametersAndResults):
             avg_rate_recall.append(mean_rate_recall)
             avg_rate_before.append(mean_rate_before)
 
-            print(
-                f"rate end of imprint: {np.round(mean_rate_end,2)} Hz | before: {np.round(mean_rate_before,2)} Hz | recall: {np.round(mean_rate_recall,2)}"
-            )
-
             # now we take the same number of neurons but randomly selected from the rest of the cells
-
-            print(len(selected_ids))
 
             label_name = "bck"
             use_second_highest_as_comparison = False
             if use_second_highest_as_comparison:
                 label_name = "next highest"
-                selected_ids = list(sorted_rates_ids[cutoff_id - len(selected_ids) : cutoff_id])
+                selected_ids = list(
+                    sorted_rates_ids[cutoff_id - len(selected_ids) : cutoff_id]
+                )
             else:
                 selected_ids = list(sorted_rates_ids[: -len(selected_ids)])
 
@@ -587,12 +664,6 @@ class NetworkTask(HandleParametersAndResults):
             avg_rate_bck_recall.append(mean_rate_recall)
             avg_rate_bck_end_of_imprint.append(mean_rate_end)
             avg_rate_bck_before.append(mean_rate_before)
-
-            print(
-                f"{label_name} --  rate end of imprint: {np.round(mean_rate_end,2)} Hz | before: {np.round(mean_rate_before,2)} Hz | recall: {np.round(mean_rate_recall,2)}"
-            )
-
-            # print(len(selected_ids))
 
         fig, ax = plt.subplots()
         ax.bar(
@@ -619,7 +690,12 @@ class NetworkTask(HandleParametersAndResults):
             color="#b2df8a",
             label=f"{label_name} neurons - end of imprint",
         )
-        ax.bar([4, 11, 18, 25], avg_rate_recall, color="#ff7f00", label="assembly neurons - recall")
+        ax.bar(
+            [4, 11, 18, 25],
+            avg_rate_recall,
+            color="#ff7f00",
+            label="assembly neurons - recall",
+        )
         ax.bar(
             np.array([5, 12, 19, 26]) - 0.5,
             avg_rate_bck_recall,
@@ -651,7 +727,9 @@ class NetworkTask(HandleParametersAndResults):
                 weights = self.save_dict[f"{area_name}_weights"]
                 matlab_save_dict[f"all_weights_area_{area_name}"] = weights.T
                 weights = weights[:, context_id::6]
-                matlab_save_dict[f"weights_area_{area_name}_of_context_{context_id}"] = weights.T
+                matlab_save_dict[
+                    f"weights_area_{area_name}_of_context_{context_id}"
+                ] = weights.T
 
                 sorted_neuron_ids, _, _ = self.sort_neurons_by_firing_rate(area=area)
                 weights = weights[np.ix_(sorted_neuron_ids, sorted_neuron_ids)]
@@ -661,12 +739,10 @@ class NetworkTask(HandleParametersAndResults):
 
                 if show_plot:
                     fig, ax = plt.subplots()
-                    im = ax.imshow(weights.T, cmap="Greys")
+                    ax.imshow(weights.T, cmap="Greys")
                     ax.set(aspect=1 / 6.0)
                     plt.show()
 
-        # scipy.io.savemat("task_weights.mat", mdict=save_dict)
-        scipy.io.savemat(f"{matlab_export_name}.mat", mdict=matlab_save_dict)
         for key, val in matlab_save_dict.items():
             np.savetxt(f"{matlab_export_name}_{key}.txt", val)
 

@@ -1,4 +1,3 @@
-import brian2 as br
 from brian2.units import *
 import numpy as np
 import h5py
@@ -8,6 +7,8 @@ import json
 import os
 from os.path import abspath, dirname, join
 import time
+import pickle
+import uuid
 
 
 class HandleParametersAndResults:
@@ -58,9 +59,6 @@ class HandleParametersAndResults:
 
         self.load_from_key = load_from_key
 
-        # print("##")
-        # print(kwargs)
-
         if "only_load_results" in kwargs:
             if kwargs["only_load_results"]:
                 self.only_load_results = True
@@ -68,7 +66,9 @@ class HandleParametersAndResults:
                 if self.save_dict:
                     self.create_network = False
 
-        # TODO write update for the parameters
+        self.figure_name = None
+        if "figure_name" in kwargs:
+            self.figure_name = kwargs["figure_name"]
 
     def show_all_saved_dictionaries(
         self, extra_key=None, show_only_closest_results=True, print_results=True
@@ -80,7 +80,9 @@ class HandleParametersAndResults:
 
             for group_name in closest_results_groups:
                 self.show_all_saved_dictionaries(
-                    extra_key=group_name, print_results=True, show_only_closest_results=False
+                    extra_key=group_name,
+                    print_results=True,
+                    show_only_closest_results=False,
                 )
 
             return
@@ -101,16 +103,12 @@ class HandleParametersAndResults:
         if os.path.exists(save_file_path):
             with h5py.File(save_file_path, "r") as hf:
                 for group_name in hf:
-                    # print("group_name", group_name)
                     if extra_key is not None:
                         if extra_key != group_name:
                             continue
                     if print_results:
-                        print("#####. ", group_name)
-                        print("####################")
-                    # for name in hf[group_name]:
-                    #     item = hf[group_name][name]
-
+                        print(f"Comparing stored result group: {group_name}")
+                        print("Parameter differences:")
                     n_deviations = 0
                     for key, val in hf[group_name].attrs.items():
                         try:
@@ -118,24 +116,32 @@ class HandleParametersAndResults:
                                 if np.any(current_dict[key] != val):
                                     n_deviations += 1
                                     if print_results:
-                                        print(f"{key} - {val}/{current_dict[key]}")
+                                        print(
+                                            f"Difference for {key}: {val}/{current_dict[key]}"
+                                        )
                             except ValueError:
                                 n_deviations += 1
                                 if print_results:
-                                    print(f"VALUE ERROR: {key} - {val}/{current_dict[key]}")
+                                    print(
+                                        f"Value error for {key}: {val}/{current_dict[key]}"
+                                    )
 
                         except KeyError:
                             n_deviations += 1
                             if print_results:
-                                print("key not found in current dict: ", key)
+                                print(
+                                    f"Stored parameter missing from current configuration: {key}"
+                                )
 
                     for key in current_dict:
                         if key not in hf[group_name].attrs.keys():
                             n_deviations += 1
                             if print_results:
-                                print("key not in loaded dict: ", key)
+                                print(
+                                    f"Current parameter missing from stored results: {key}"
+                                )
                     if print_results:
-                        print("___________")
+                        print("Finished comparing stored result group.")
 
                     if n_deviations < least_deviations:
                         closest_results_groups = [group_name]
@@ -181,7 +187,9 @@ class HandleParametersAndResults:
 
         return path
 
-    def check_for_results(self, key=None, addon=None, ignore_all_keys_with_keywords=None):
+    def check_for_results(
+        self, key=None, addon=None, ignore_all_keys_with_keywords=None
+    ):
         if self.rerun and not self.only_load_results:
             self.save_dict = {}
             return self.save_dict
@@ -202,7 +210,9 @@ class HandleParametersAndResults:
             key = self.load_from_key
 
         if os.path.exists(save_file_path):
-            for mm in range(10):
+            for mm in range(5):
+                if mm == 99:
+                    raise ValueError("REACHED FILE OPENING LIMIT")
                 try:
                     with h5py.File(save_file_path, "a") as hf:
                         for group_name in hf:
@@ -212,15 +222,27 @@ class HandleParametersAndResults:
                                     self.save_dict[name] = item[()]
 
                     break
-                except BlockingIOError:
-                    print("tried to load but was blocked - retry in 2 seconds")
-                    time.sleep(2)
+                except (
+                    BlockingIOError,
+                    PermissionError,
+                    RuntimeError,
+                    KeyError,
+                    OSError,
+                ) as e:
+                    random_retry_time = 4 + 6 * np.random.rand()
+                    print(
+                        f"Result load retry after {e}; waiting {random_retry_time} seconds."
+                    )
+                    time.sleep(random_retry_time)
 
         if self.save_dict and self.new_file_to_save_to is not None:
-            self.save_results(save_to_new_file=True)
+            self.save_results(
+                save_to_new_file=True,
+                ignore_all_keys_with_keywords=ignore_all_keys_with_keywords,
+            )
 
         if self.save_dict:
-            print(f"Sucessfully loaded key {key} from {save_file_path}")
+            print(f"Loaded result key {key} from {save_file_path}.")
         return self.save_dict
 
     def save_results(self, ignore_all_keys_with_keywords=None, save_to_new_file=False):
@@ -229,15 +251,13 @@ class HandleParametersAndResults:
         )
         par_dict = self.get_full_parameter_dict()
 
-        for mm in range(10):
-            # we do ten tries to save the data
+        for mm in range(50):
+            # we do 50 tries to save the data
             try:
                 with h5py.File(
-                    self.get_path_to_save_file_name(save_to_new_file=save_to_new_file), "a"
+                    self.get_path_to_save_file_name(save_to_new_file=save_to_new_file),
+                    "a",
                 ) as hf:
-                    print(
-                        f"SAVE TO {self.get_path_to_save_file_name(save_to_new_file=save_to_new_file)}"
-                    )
                     if group_name in hf:
                         # need to update
                         group = hf.get(group_name)
@@ -257,16 +277,27 @@ class HandleParametersAndResults:
                         if result_name in group:
                             del group[result_name]
 
-                        d_set = group.create_dataset(result_name, data=res)
+                        _ = group.create_dataset(result_name, data=res)
                 break
-            except BlockingIOError:
-                if mm == 9:
-                    print("Could not access the file")
+            except (
+                BlockingIOError,
+                PermissionError,
+                RuntimeError,
+                KeyError,
+                OSError,
+            ) as e:
+                if mm == 49:
+                    raise ValueError("REACHED FILE SAVING LIMIT")
                 else:
-                    print("tried to load but was blocked - retry in 3 seconds")
-                    time.sleep(3)
+                    random_retry_time = 4 + 6 * np.random.rand()
+                    print(
+                        f"Result save retry after {e}; waiting {random_retry_time} seconds."
+                    )
+                    time.sleep(random_retry_time)
 
-    def get_unique_paramter_and_equation_key(self, key_length=8, ignore_all_keys_with_keywords=None):
+    def get_unique_paramter_and_equation_key(
+        self, key_length=8, ignore_all_keys_with_keywords=None
+    ):
         dictionary = self.get_full_parameter_dict()
 
         comp_dict = {
@@ -288,9 +319,9 @@ class HandleParametersAndResults:
         else:
             dictionary = comp_dict
 
-        unique_dict_key = hashlib.sha1(json.dumps(dictionary, sort_keys=True).encode()).hexdigest()[
-            :key_length
-        ]
+        unique_dict_key = hashlib.sha1(
+            json.dumps(dictionary, sort_keys=True).encode()
+        ).hexdigest()[:key_length]
         return unique_dict_key
 
     def remove_units(self, dictionary):
@@ -307,17 +338,50 @@ class HandleParametersAndResults:
         return new_dict
 
     def get_path_to_stored_networks(self, file_name):
-        print(dirname(__file__))
-        path = abspath(join(dirname(__file__), "..", "stored_networks", f"{file_name}"))
+        if self.figure_name is None:
+            path = abspath(
+                join(dirname(__file__), "..", "stored_networks", f"{file_name}")
+            )
+        else:
+            path = abspath(
+                join(
+                    dirname(__file__),
+                    "..",
+                    "stored_networks",
+                    f"{self.figure_name}",
+                    f"{file_name}",
+                )
+            )
         return path
 
+    def store_network(self, filename):
+        tmp = f"{filename}.tmp_{os.getpid()}_{uuid.uuid4().hex}"
+        try:
+            self.network.store(filename=tmp)
+            os.replace(tmp, filename)
+        finally:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+
+    def restore_network(self, filename):
+        try:
+            self.network.restore(filename=filename)
+            return True
+        except (EOFError, pickle.UnpicklingError, OSError) as e:
+            print(f"Stored network {filename} is unreadable ({e}).")
+            return False
+
     def get_path(self, folder_name, file_name, file_ending="txt"):
-        path = abspath(join(dirname(__file__), folder_name, f"{file_name}.{file_ending}"))
+        path = abspath(
+            join(dirname(__file__), folder_name, f"{file_name}.{file_ending}")
+        )
         return path
 
     def load_parameters(self):
         skipchars = ["#"]
-        with open(self.get_path(self.parameters_folder_name, self.parameter_file_name), "r") as f:
+        with open(
+            self.get_path(self.parameters_folder_name, self.parameter_file_name), "r"
+        ) as f:
             params = dict()
             for line in f:
                 line = line.strip()
@@ -334,7 +398,9 @@ class HandleParametersAndResults:
     def load_equations(self):
         eqs = {}
         name = ""
-        with open(self.get_path(self.equations_folder_name, self.equation_file_name), "r") as f:
+        with open(
+            self.get_path(self.equations_folder_name, self.equation_file_name), "r"
+        ) as f:
             for line in f:
                 line = line.split("#")[0].strip()
 
@@ -346,5 +412,7 @@ class HandleParametersAndResults:
                     elif name:
                         eqs[name] += line + "\n"
                     else:
-                        print("INFO: omitting text at the beginning of the equations file")
+                        print(
+                            "Omitting text before the first section in the equations file."
+                        )
         return eqs

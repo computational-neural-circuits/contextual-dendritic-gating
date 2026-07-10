@@ -2,12 +2,13 @@ import brian2 as br
 from brian2.units import *
 import numpy as np
 import matplotlib.pyplot as plt
-import networkx as nx
-import community as community_louvain
 
 from src.handle_parameters_and_results import HandleParametersAndResults
 from src.area import Area
-from src.utils import get_firing_rate_for_single_neuron, get_assembly_neuron_ids_by_weight_and_rate
+from src.utils import (
+    get_firing_rate_for_single_neuron,
+    get_assembly_neuron_ids_by_weight_and_rate,
+)
 
 import scipy
 
@@ -31,22 +32,143 @@ class NetworkSingleImprint(HandleParametersAndResults):
             **kwargs,
         )
 
+        self.monitor_currents = False
+        if "monitor_currents" in self.parameters_for_run:
+            self.monitor_currents = self.parameters_for_run["monitor_currents"]
+
         if self.create_network:
             self.network = br.Network()
             self.setup_network()
             self.create_monitors()
 
+    def set_equations_for_monitoring_currents(self):
+
+        self.equations["Dend"] = """
+            dV/dt = (iDendL + iDendSyn - iCoupleSoma)/cDend_pyr : volt
+            iDendL = -gLDend_pyr*(V-vRest_pyr) : amp
+            iDendAMPA1 = -gTotAMPA1*(V-vE_pyr) : amp
+            iDendAMPA2 = -gTotAMPA2*(V-vE_pyr) : amp
+            iDendAMPA3 = -gTotAMPA3*(V-vE_pyr) : amp
+            iDendGABA = -gTotGABA*(V-vI_pyr) + I_ext: amp
+            iDendGABArec = -gTotGABArec*(V-vI_pyr): amp
+            iDendSyn = iDendAMPA1 + iDendAMPA2 + iDendAMPA3 + iTotNMDA + iDendGABA + iDendGABArec : amp
+            dgTotAMPA1/dt = -gTotAMPA1/tauAMPA : siemens
+            dgTotAMPA2/dt = -gTotAMPA2/tauAMPA : siemens
+            dgTotAMPA3/dt = -gTotAMPA3/tauAMPA : siemens
+            dgTotGABA/dt = -gTotGABA/tauGABA : siemens
+            dgTotGABArec/dt = -gTotGABArec/tauGABA : siemens
+            iTotNMDA = iTotNMDA1 + iTotNMDA2 + iTotNMDA3: amp
+            iTotNMDA1 : amp
+            iTotNMDA2 : amp
+            iTotNMDA3 : amp
+            I_ext : amp
+            du_plus/dt = (-u_plus + u1)/tau_plus : volt
+            du_minus/dt = (-u_minus + u1)/tau_minus : volt
+            du1/dt = (-u1 + V)/tau1 : volt
+            iCoupleSoma : amp
+            w_max_ff : 1
+            w_min_ff : 1
+            w_max_rec : 1
+            w_min_rec : 1
+            w_tot: 1
+        """
+
+        self.equations["on_pre"] = """
+            sNMDARise = 1
+            gTotAMPA1_post += w * gAMPA
+            w = clip(w - A_LTD*(u_minus_post-theta_minus)*int(u_minus_post>theta_minus), w_min_post, w_max_post)
+            x += 1
+        """
+
     def setup_network(self):
         print("Setup the network for single imprint")
         br.seed(self.parameters_for_run["seed"])
         np.random.seed(self.parameters_for_run["seed"])
+
+        if self.monitor_currents:
+            self.set_equations_for_monitoring_currents()
+
         self.area = Area(
             network=self.network,
             eqs=self.equations,
             params={**self.parameters, **self.parameters_for_run},
         )
 
+    def create_monitors_for_current_recording(self):
+
+        assembly_ids = self.parameters_for_run["assembly_ids_for_monitoring_currents"]
+        context_id = self.parameters_for_run["context_id_for_monitoring_currents"]
+
+        area = self.area
+
+        assembly_dend_ids = [
+            ii
+            for ii in range(area.n_dends)
+            if (
+                ii in area.dends_of_ctxt[context_id]
+                and ii // area.n_dends_each in assembly_ids
+            )
+        ]
+
+        non_assembly_dend_ids = [
+            ii
+            for ii in range(area.n_dends)
+            if (
+                ii in area.dends_of_ctxt[context_id]
+                and ii // area.n_dends_each not in assembly_ids
+            )
+        ]
+        non_assembly_dend_ids = non_assembly_dend_ids[: len(assembly_dend_ids)]
+
+        self.assembly_dend_ids_for_rec = assembly_dend_ids
+        self.non_assembly_dend_ids_for_rec = non_assembly_dend_ids
+
+        mon1 = br.StateMonitor(
+            area.dends,
+            [
+                "iTotNMDA1",
+                "iTotNMDA2",
+                "iTotNMDA3",
+                "V",
+                "iDendAMPA1",
+                "iDendAMPA2",
+                "iDendAMPA3",
+            ],
+            record=assembly_dend_ids,
+            dt=self.parameters["monitor_dt"],
+        )
+        self.network.add(mon1)
+        mon2 = br.StateMonitor(
+            area.dends,
+            [
+                "iTotNMDA1",
+                "iTotNMDA2",
+                "iTotNMDA3",
+                "V",
+                "iDendAMPA1",
+                "iDendAMPA2",
+                "iDendAMPA3",
+            ],
+            record=non_assembly_dend_ids,
+            dt=self.parameters["monitor_dt"],
+        )
+        self.network.add(mon2)
+        self.records_of_assembly_dends = [mon1, mon2]
+
+        self.spM_somas = br.SpikeMonitor(area.somas, name=f"somata_monitor_{area.name}")
+        self.network.add(self.spM_somas)
+        self.spM_inputs = []
+        for iu, input_units in enumerate([area.input_units_1, area.input_units_2]):
+            spm = br.SpikeMonitor(input_units, name=f"input_monitor_{iu}_{area.name}")
+            self.spM_inputs.append(spm)
+            self.network.add(spm)
+
     def create_monitors(self):
+
+        if self.monitor_currents:
+            self.create_monitors_for_current_recording()
+            return
+
         # monitor the spikes of the somas and the inputs
         area = self.area
 
@@ -63,12 +185,11 @@ class NetworkSingleImprint(HandleParametersAndResults):
         unique_counts = np.sort(np.unique(area.counts_gated[0]))[:-1].astype(
             int
         )  # remove the NaN value
-        unique_counts_non_gated = np.sort(np.unique(area.counts_non_gated[0]))[:-1].astype(
+        unique_counts_non_gated = np.sort(np.unique(area.counts_non_gated[0]))[
+            :-1
+        ].astype(
             int
         )  # remove the NaN value
-
-        # print(unique_counts)
-        # print(unique_counts_non_gated)
 
         # randomly select samples to visualize
         select_ids_gated = []
@@ -88,15 +209,13 @@ class NetworkSingleImprint(HandleParametersAndResults):
                 self.potenitially_potentiated_dendrites += list(
                     np.where(area.counts_gated[0] == n_syn)[0]
                 )
-        # print("Potentially potentiated for context 0:")
-        # print(len(self.potenitially_potentiated_dendrites))
-        # print(self.potenitially_potentiated_dendrites)
-
-        select_ids_non_gated = []
+        select_ids_non_gated = select_ids_gated
         self.select_ids_non_gated_counts = []
-        for uc in np.sort(unique_counts_non_gated):
-            select_ids_non_gated.append(np.argmax(area.counts_non_gated[0] == uc))
-            self.select_ids_non_gated_counts.append(uc)
+        if self.parameters["n_contexts"] > 0:
+            select_ids_non_gated = []
+            for uc in np.sort(unique_counts_non_gated):
+                select_ids_non_gated.append(np.argmax(area.counts_non_gated[0] == uc))
+                self.select_ids_non_gated_counts.append(uc)
 
         self.select_ids_gated = select_ids_gated
         self.select_ids_non_gated = select_ids_non_gated
@@ -105,16 +224,26 @@ class NetworkSingleImprint(HandleParametersAndResults):
         self.Msomas_V = {}
         self.Msyns_w = {}
         self.Mff_w = {}
-        for name, id_list in zip(["gated", "non_gated"], [select_ids_gated, select_ids_non_gated]):
-            mon = br.StateMonitor(area.dends, "V", record=id_list, dt=self.parameters["monitor_dt"])
+        for name, id_list in zip(
+            ["gated", "non_gated"], [select_ids_gated, select_ids_non_gated]
+        ):
+            mon = br.StateMonitor(
+                area.dends, "V", record=id_list, dt=self.parameters["monitor_dt"]
+            )
             self.Mdends_V[name] = mon
             self.network.add(mon)
 
-            neighbour_ids = [
-                s_id + 1 if (s_id + 1) % self.parameters["n_dend_each"] != 0 else s_id - 1
-                for s_id in id_list
-            ]
-            print(neighbour_ids)
+            neighbour_ids = id_list
+            if self.parameters["n_dend_each"] > 1:
+                neighbour_ids = [
+                    (
+                        s_id + 1
+                        if (s_id + 1) % self.parameters["n_dend_each"] != 0
+                        else s_id - 1
+                    )
+                    for s_id in id_list
+                ]
+
             mon = br.StateMonitor(
                 area.dends, "V", record=neighbour_ids, dt=self.parameters["monitor_dt"]
             )
@@ -204,7 +333,9 @@ class NetworkSingleImprint(HandleParametersAndResults):
                 mon = br.StateMonitor(
                     area.input_synapses[ii],
                     to_monitor,
-                    record=(area.input_synapses[ii])[np.where(area.input_synapses[ii].j == kk)[0]],
+                    record=(area.input_synapses[ii])[
+                        np.where(area.input_synapses[ii].j == kk)[0]
+                    ],
                     dt=self.parameters["monitor_dt_weights"],
                 )
                 monitor_list.append(mon)
@@ -212,7 +343,10 @@ class NetworkSingleImprint(HandleParametersAndResults):
         self.Mff_w["pot_pot"] = monitor_list
 
         self.M_n_active = br.StateMonitor(
-            area.rec_inihib_pop, "n_active", record=True, dt=self.parameters["monitor_dt"]
+            area.rec_inihib_pop,
+            "n_active",
+            record=True,
+            dt=self.parameters["monitor_dt"],
         )
         self.network.add(self.M_n_active)
 
@@ -227,7 +361,44 @@ class NetworkSingleImprint(HandleParametersAndResults):
         self.spM_rec_inhib = br.SpikeMonitor(area.rec_inihib_pop)
         self.network.add(self.spM_rec_inhib)
 
+    def create_save_dict_for_current_recording(self):
+
+        self.save_dict = {
+            f"spikes_somas_t": self.spM_somas.t / ms,
+            f"spikes_somas_i": self.spM_somas.i,
+            f"spikes_inputs_t_1": self.spM_inputs[0].t / ms,
+            f"spikes_inputs_t_2": self.spM_inputs[1].t / ms,
+            f"spikes_inputs_i_1": self.spM_inputs[0].i,
+            f"spikes_inputs_i_2": self.spM_inputs[1].i,
+        }
+
+        for ii in range(2):
+            self.save_dict[f"iTotNMDA1_{ii}"] = (
+                self.records_of_assembly_dends[ii].iTotNMDA1 / amp
+            )
+            self.save_dict[f"iTotNMDA2_{ii}"] = (
+                self.records_of_assembly_dends[ii].iTotNMDA2 / amp
+            )
+            self.save_dict[f"iTotNMDA3_{ii}"] = (
+                self.records_of_assembly_dends[ii].iTotNMDA3 / amp
+            )
+            self.save_dict[f"V_{ii}"] = self.records_of_assembly_dends[ii].V / mV
+            self.save_dict[f"iDendAMPA1_{ii}"] = (
+                self.records_of_assembly_dends[ii].iDendAMPA1 / amp
+            )
+            self.save_dict[f"iDendAMPA2_{ii}"] = (
+                self.records_of_assembly_dends[ii].iDendAMPA2 / amp
+            )
+            self.save_dict[f"iDendAMPA3_{ii}"] = (
+                self.records_of_assembly_dends[ii].iDendAMPA3 / amp
+            )
+
     def create_save_dict(self):
+
+        if self.monitor_currents:
+            self.create_save_dict_for_current_recording()
+            return
+
         area = self.area
         weights_recurrent = np.zeros(shape=(area.n_somas, area.n_dends))
         weights_recurrent[area.srcs, area.tgts] = area.synapses_E.w
@@ -235,12 +406,12 @@ class NetworkSingleImprint(HandleParametersAndResults):
         weights_ff_1 = np.zeros(shape=(area.n_somas, area.n_dends))
         weights_ff_2 = np.zeros(shape=(area.n_somas, area.n_dends))
 
-        weights_ff_1[area.input_synapses[0].i[:], area.input_synapses[0].j[:]] = area.input_synapses[
-            0
-        ].w
-        weights_ff_2[area.input_synapses[1].i[:], area.input_synapses[1].j[:]] = area.input_synapses[
-            1
-        ].w
+        weights_ff_1[area.input_synapses[0].i[:], area.input_synapses[0].j[:]] = (
+            area.input_synapses[0].w
+        )
+        weights_ff_2[area.input_synapses[1].i[:], area.input_synapses[1].j[:]] = (
+            area.input_synapses[1].w
+        )
 
         self.save_dict = {
             f"spikes_somas_t": self.spM_somas.t / ms,
@@ -272,7 +443,8 @@ class NetworkSingleImprint(HandleParametersAndResults):
         self.save_dict["weights_ff_2"] = weights_ff_2
 
         for name, counts in zip(
-            ["gated", "non_gated"], [self.select_ids_gated_counts, self.select_ids_non_gated_counts]
+            ["gated", "non_gated"],
+            [self.select_ids_gated_counts, self.select_ids_non_gated_counts],
         ):
             self.save_dict[f"voltage_dends_{name}"] = self.Mdends_V[name].V / mV
             self.save_dict[f"voltage_dends_{name}_neighbour"] = (
@@ -291,7 +463,9 @@ class NetworkSingleImprint(HandleParametersAndResults):
                 self.save_dict[f"weight_w_ff_1_{ii}_{name}"] = ww_1
                 self.save_dict[f"weight_w_ff_2_{ii}_{name}"] = ww_2
 
-        self.save_dict["voltage_dends_potentially_potentiated"] = self.Mdends_V["pot_pot"].V / mV
+        self.save_dict["voltage_dends_potentially_potentiated"] = (
+            self.Mdends_V["pot_pot"].V / mV
+        )
 
         for ii, _ in enumerate(self.potenitially_potentiated_dendrites):
             ww = self.Msyns_w["pot_pot"][ii].w
@@ -308,7 +482,6 @@ class NetworkSingleImprint(HandleParametersAndResults):
         run_association = self.parameters_for_run["run_association"]
 
         context_id = 0
-        assembly_id = (0, 0)
 
         if self.check_for_results():
             return self.save_dict
@@ -322,43 +495,46 @@ class NetworkSingleImprint(HandleParametersAndResults):
         self.area.input_units_1[:].rates = self.parameters["ff_bck"]
         self.area.input_units_2[:].rates = self.parameters["ff_bck"]
 
-        self.network.run(runtime_baseline, report=report_style, report_period=report_period)
+        print("Starting")
+        self.network.run(
+            runtime_baseline, report=report_style, report_period=report_period
+        )
 
-        self.area.input_units_1[: self.parameters["assembly_size"]].rates = self.parameters[
-            "assembly_firing_rate"
-        ]
+        self.area.input_units_1[: self.parameters["assembly_size"]].rates = (
+            self.parameters["assembly_firing_rate"]
+        )
 
         if run_association:
-            self.area.input_units_2[: self.parameters["assembly_size"]].rates = self.parameters[
-                "assembly_firing_rate"
-            ]
+            self.area.input_units_2[: self.parameters["assembly_size"]].rates = (
+                self.parameters["assembly_firing_rate"]
+            )
 
-        self.network.run(runtime_imprint, report=report_style, report_period=report_period)
+        self.network.run(
+            runtime_imprint, report=report_style, report_period=report_period
+        )
 
         self.area.input_units_1[:].rates = self.parameters["ff_bck"]
         self.area.input_units_2[:].rates = self.parameters["ff_bck"]
 
-        self.network.run(runtime_baseline, report=report_style, report_period=report_period)
+        self.network.run(
+            runtime_baseline, report=report_style, report_period=report_period
+        )
 
         self.create_save_dict()
         self.save_results()
 
     def show_weight_matrix(self, show_plot=False, matlab_export_name=None):
         weights_loaded = self.save_dict["weights"]
-        print(self.save_dict["weights"].shape)
 
         context_id = 0
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(12, 6))
 
-        # weights = weights_loaded[:, context_id::6]
         weights = weights_loaded[:, :]
 
         matlab_save_dict = {"all_weights": weights_loaded}
 
         im = ax1.imshow(weights.T, cmap="Greys", origin="lower")
         ax1.set(xlabel="Pre", ylabel="Post")
-
-        print("new shape, ", weights.shape)
 
         sorted_neuron_ids, _ = self.sort_neurons_by_firing_rate(reverse_order=False)
 
@@ -375,17 +551,6 @@ class NetworkSingleImprint(HandleParametersAndResults):
 
         ax2.set(xlabel="pre", ylabel="post")
         plt.colorbar(im)
-
-        # G = nx.from_numpy_array(weights, create_using=nx.DiGraph)
-
-        # # Community detection (convert to undirected for the community detection if necessary)
-        # partition = community_louvain.best_partition(G.to_undirected(), weight="weight")
-
-        # # Create a mapping of node index to community
-        # node_community_map = {node: community for node, community in enumerate(partition.values())}
-
-        # # Sort nodes by community
-        # sorted_nodes = sorted(node_community_map, key=node_community_map.get)
 
         # Reorder the matrix accordingly
         weights = weights_loaded[:, context_id::6]
@@ -416,7 +581,6 @@ class NetworkSingleImprint(HandleParametersAndResults):
         end = start + rtm
 
         context_id = 0
-        contex_id_index = 0
 
         all_firing_rates_somas = []
         for neuron_index in range(self.parameters["n_somas"]):
@@ -428,7 +592,6 @@ class NetworkSingleImprint(HandleParametersAndResults):
 
         sorted_neuron_ids = []
 
-        print(all_firing_rates_somas)
         # get assembly ids
         selected_ids = get_assembly_neuron_ids_by_weight_and_rate(
             net=self,
@@ -443,7 +606,9 @@ class NetworkSingleImprint(HandleParametersAndResults):
 
         return sorted_neuron_ids, selected_ids
 
-    def show_spike_rasters(self, show_plot=False, order=None, axes=None, show_range=None):
+    def show_spike_rasters(
+        self, show_plot=False, order=None, axes=None, show_range=None
+    ):
         somas_time = self.save_dict["spikes_somas_t"]
         somas_i = self.save_dict["spikes_somas_i"]
         inputs_2_time = self.save_dict["spikes_inputs_t_2"]
@@ -462,11 +627,10 @@ class NetworkSingleImprint(HandleParametersAndResults):
         if order is not None:
             sorted_neuron_ids = order
 
-        bsl = self.parameters_for_run["runtime_baseline"] / msecond
-        rtm = self.parameters_for_run["runtime_imprint"] / msecond
+        _bsl = self.parameters_for_run["runtime_baseline"] / msecond
+        _rtm = self.parameters_for_run["runtime_imprint"] / msecond
 
-        start = bsl
-        end = start + rtm
+        _start = _bsl
 
         context_id = 0
         for neuron_index in range(self.parameters["n_somas"]):
@@ -477,27 +641,25 @@ class NetworkSingleImprint(HandleParametersAndResults):
             ):
                 spike_times_for_neuron = inputs_time[inputs_i == neuron_index]
 
-                ax.vlines(
-                    spike_times_for_neuron,
-                    ymin=neuron_index - 0.5,
-                    ymax=neuron_index + 0.5,
-                    colors="k",
-                )
-
-        print(somas_i.shape, somas_time.shape)
+                if ax is not None:
+                    ax.vlines(
+                        spike_times_for_neuron,
+                        ymin=neuron_index - 0.5,
+                        ymax=neuron_index + 0.5,
+                        colors="k",
+                    )
 
         for ii, neuron_index in enumerate(sorted_neuron_ids):
             spike_times_for_neuron = somas_time[somas_i == neuron_index]
-            ax_somas.vlines(spike_times_for_neuron, ymin=ii - 0.5, ymax=ii + 0.5, colors="k")
+            ax_somas.vlines(
+                spike_times_for_neuron, ymin=ii - 0.5, ymax=ii + 0.5, colors="k"
+            )
             ax_somas.set_title(f"Sorted for context {context_id}", color="k")
 
         ax_inputs_1.set_title("Inputs (1)")
-        ax_inputs_2.set_title("Inputs (2)")
-        # ax_somas.set_title("Area")
-        # ax_somas.set(xlabel="Time in ms", ylim=ax_inputs.get_ylim())
 
-        # for ax in [ax_somas, ax_inputs]:
-        #     ax.set(ylabel="Neuron Number")
+        if ax_inputs_2 is not None:
+            ax_inputs_2.set_title("Inputs (2)")
 
         fig, inhib_axes = plt.subplots(2)
         inhib_axes[0].plot(
@@ -506,8 +668,15 @@ class NetworkSingleImprint(HandleParametersAndResults):
         inhib_axes[1].plot(self.save_dict["x_time"], self.save_dict["x_value"][0, :])
 
         if show_range is not None:
-            for ax in [ax_inputs_1, ax_inputs_2, ax_somas, inhib_axes[0], inhib_axes[1]]:
-                ax.set_xlim(show_range)
+            for ax in [
+                ax_inputs_1,
+                ax_inputs_2,
+                ax_somas,
+                inhib_axes[0],
+                inhib_axes[1],
+            ]:
+                if ax is not None:
+                    ax.set_xlim(show_range)
 
         if show_plot:
             plt.show()
@@ -517,9 +686,9 @@ class NetworkSingleImprint(HandleParametersAndResults):
 
         fig_dim = int(np.ceil(np.sqrt(len(pot_pot) / 2)))
 
-        print(fig_dim, 2 * fig_dim)
-
-        fig, axes_dendrites = plt.subplots(fig_dim, 2 * fig_dim, sharex=True, sharey=True)
+        fig, axes_dendrites = plt.subplots(
+            fig_dim, 2 * fig_dim, sharex=True, sharey=True
+        )
         fig, axes_weights = plt.subplots(fig_dim, 2 * fig_dim, sharex=True, sharey=True)
         fig, axes_dist = plt.subplots(fig_dim, 2 * fig_dim, sharex=True, sharey=True)
         for ii in range(len(pot_pot)):
@@ -545,18 +714,26 @@ class NetworkSingleImprint(HandleParametersAndResults):
                 w_sum.append(w)
 
             for w in self.save_dict[f"weight_w_ff_1_{ii}_pot_pot"]:
-                ax.plot(self.save_dict["voltage_weights_t"], w, color="#1d91c0", alpha=0.2)
+                ax.plot(
+                    self.save_dict["voltage_weights_t"], w, color="#1d91c0", alpha=0.2
+                )
                 w_sum.append(w)
 
             for w in self.save_dict[f"weight_w_ff_2_{ii}_pot_pot"]:
-                ax.plot(self.save_dict["voltage_weights_t"], w, color="#54278f", alpha=0.2)
+                ax.plot(
+                    self.save_dict["voltage_weights_t"], w, color="#54278f", alpha=0.2
+                )
                 w_sum.append(w)
 
             ax = axes_dist.flatten()[ii]
             ax.set_title(
                 f"#{pot_pot[ii]} ({self.area.counts_gated[0][pot_pot[ii]]}/{self.area.dends.w_tot[ii]})"
             )
-            ax.hist(gather_weights, bins=np.linspace(0, self.parameters["w_max_rec"], 50), color="k")
+            ax.hist(
+                gather_weights,
+                bins=np.linspace(0, self.parameters["w_max_rec"], 50),
+                color="k",
+            )
             ax.set_ylim([0, 35])
 
             if ii % (2 * fig_dim) == 0:
@@ -569,21 +746,14 @@ class NetworkSingleImprint(HandleParametersAndResults):
             plt.show()
 
     def show_traces_for_example_neurons(self, gated=True, show_plot=False):
-        for ii in range(10):
-            print(f"######### Final weights above {ii}")
-            print(np.sum(self.save_dict["weights"] > ii))
         fig, ax = plt.subplots()
         ax.hist(self.save_dict["weights"].flatten(), bins=np.linspace(0, 12, 40))
 
         counts = self.select_ids_gated_counts
         name = "gated"
-        main_color = "#2171b5"
-        neighbour_color = "#fd8d3c"
         if not gated:
             counts = self.select_ids_non_gated_counts
             name = "non_gated"
-            main_color = "#fd8d3c"
-            neighbour_color = "#6a51a3"
 
         fig, ax_w_sum = plt.subplots(1, len(counts))
         fig, axes = plt.subplots(3, len(counts), sharex=True)
@@ -619,22 +789,39 @@ class NetworkSingleImprint(HandleParametersAndResults):
 
             try:
                 for w in self.save_dict[f"weight_w_ff_1_{ii}_{name}"]:
-                    ax.plot(self.save_dict["voltage_weights_t"], w, color="#1d91c0", alpha=0.2)
+                    ax.plot(
+                        self.save_dict["voltage_weights_t"],
+                        w,
+                        color="#1d91c0",
+                        alpha=0.2,
+                    )
                     w_sum.append(w)
 
                 for w in self.save_dict[f"weight_w_ff_2_{ii}_{name}"]:
-                    ax.plot(self.save_dict["voltage_weights_t"], w, color="#54278f", alpha=0.2)
+                    ax.plot(
+                        self.save_dict["voltage_weights_t"],
+                        w,
+                        color="#54278f",
+                        alpha=0.2,
+                    )
                     w_sum.append(w)
             except KeyError:
                 # This means we have an old version of the save dict
                 for w in self.save_dict[f"weight_w_ff_{ii}_{name}"]:
-                    ax.plot(self.save_dict["voltage_weights_t"], w, color="#1d91c0", alpha=0.2)
+                    ax.plot(
+                        self.save_dict["voltage_weights_t"],
+                        w,
+                        color="#1d91c0",
+                        alpha=0.2,
+                    )
                     w_sum.append(w)
 
             if ii == 0:
                 ax.set_ylabel("weight")
                 ax_w_sum[ii].set_ylabel("Summed Weight")
-            ax_w_sum[ii].plot(self.save_dict["voltage_weights_t"], np.sum(w_sum, axis=0))
+            ax_w_sum[ii].plot(
+                self.save_dict["voltage_weights_t"], np.sum(w_sum, axis=0)
+            )
             ax_w_sum[ii].set_xlabel("Time in ms")
             ax_w_sum[ii].set_title(self.area.dends[self.select_ids_gated[ii]].w_tot[:])
 
@@ -643,7 +830,10 @@ class NetworkSingleImprint(HandleParametersAndResults):
                 ax.set_yticklabels([])
                 ax.sharey(axes[2, 0])
 
-            ax.plot(self.save_dict["voltag_somas_t"], self.save_dict[f"voltage_soma_{name}"][0])
+            ax.plot(
+                self.save_dict["voltag_somas_t"],
+                self.save_dict[f"voltage_soma_{name}"][0],
+            )
             ax.set_xlabel("Time in mS")
             if ii == 0:
                 ax.set_ylabel("Somatic voltage in mV")

@@ -1,7 +1,6 @@
 import brian2 as br
 from brian2.units import *
 import numpy as np
-import matplotlib.pyplot as plt
 
 from src.handle_parameters_and_results import HandleParametersAndResults
 from src.area import Area
@@ -36,9 +35,14 @@ class NetworkFFInhibition(HandleParametersAndResults):
                 self.create_monitors()
 
                 self.area.count_number_of_inputs_from_subsets_in_context(
-                    subsets=[[ii for ii in range(self.parameters_for_run["n_active_inputs"])], []]
+                    subsets=[
+                        [
+                            ii
+                            for ii in range(self.parameters_for_run["n_active_inputs"])
+                        ],
+                        [],
+                    ]
                 )
-                print(self.area.counts_neurons_gated[0])
 
     def setup_network(self):
         print("Setup the network for ff inhib investigation")
@@ -54,9 +58,7 @@ class NetworkFFInhibition(HandleParametersAndResults):
                    dsNMDARise/dt = -sNMDARise/tauNMDARise : 1 (clock-driven)
                    iTotNMDA1_post = -w*gNMDA*sNMDA*(V_post-vE_pyr)/(1+exp(-(V_post-vHalfNMDA)/vSpreadNMDA)) : amp (summed)
                     w : 1"""
-            self.equations[
-                "on_pre"
-            ] = """sNMDARise = 1
+            self.equations["on_pre"] = """sNMDARise = 1
                 gTotAMPA_post += w * gAMPA"""
 
         if self.only_load_results:
@@ -89,7 +91,9 @@ class NetworkFFInhibition(HandleParametersAndResults):
         )
 
         area.silent_synapses.connect(p=1)
-        area.silent_synapses.w = self.parameters_for_run["silent_synapse_starting_weight"]
+        area.silent_synapses.w = self.parameters_for_run[
+            "silent_synapse_starting_weight"
+        ]
 
         self.network.add(area.silent_pre_population, area.silent_synapses)
 
@@ -106,7 +110,6 @@ class NetworkFFInhibition(HandleParametersAndResults):
         self.network.add(self.Msilent)
 
     def create_save_dict(self):
-        area = self.area
         self.save_dict = {
             "silent_synapses_weight": self.Msilent.w,
             "counts_gated": self.area.counts_neurons_gated,
@@ -129,9 +132,13 @@ class NetworkFFInhibition(HandleParametersAndResults):
         self.area.input_units_1[:].rates = self.parameters["ff_bck"]
         self.area.input_units_2[:].rates = self.parameters["ff_bck"]
 
-        self.area.input_units_1[:n_active_inputs].rates = self.parameters["assembly_firing_rate"]
+        self.area.input_units_1[:n_active_inputs].rates = self.parameters[
+            "assembly_firing_rate"
+        ]
 
-        self.network.run(runtime_imprint, report=report_style, report_period=report_period)
+        self.network.run(
+            runtime_imprint, report=report_style, report_period=report_period
+        )
 
         self.create_save_dict()
         self.save_results()
@@ -144,6 +151,7 @@ def run_sim(
     prevent_plasticity=True,
     return_results=False,
     only_load_results=False,
+    save_file_name="investigate_ff_inhibition",
 ):
     parameter_dict = {
         "rec_inhib_rate": 0 * Hz,
@@ -176,7 +184,7 @@ def run_sim(
     net = NetworkFFInhibition(
         parameter_file_name="parameters",
         parameters_for_run=parameters_for_run,
-        save_file_name="investigate_ff_inhibition",
+        save_file_name=save_file_name,
         parameter_dict=parameter_dict,
         only_load_results=only_load_results,
         prevent_plasticity=prevent_plasticity,

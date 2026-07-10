@@ -7,7 +7,10 @@ import community as community_louvain
 
 from src.handle_parameters_and_results import HandleParametersAndResults
 from src.area import Area
-from src.utils import get_firing_rate_for_single_neuron, get_assembly_neuron_ids_by_weight_and_rate
+from src.utils import (
+    get_firing_rate_for_single_neuron,
+    get_assembly_neuron_ids_by_weight_and_rate,
+)
 
 import scipy
 
@@ -45,7 +48,6 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
         br.seed(self.parameters_for_run["seed"])
         np.random.seed(self.parameters_for_run["seed"])
 
-        # print(self.parameters)
         self.area = Area(
             network=self.network,
             eqs=self.equations,
@@ -62,7 +64,9 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
 
         self.record_recurrent_inhibition = False
         if "record_recurrent_inhibition" in self.parameters_for_run:
-            self.record_recurrent_inhibition = self.parameters_for_run["record_recurrent_inhibition"]
+            self.record_recurrent_inhibition = self.parameters_for_run[
+                "record_recurrent_inhibition"
+            ]
 
         self.record_new_recurrent_inhibition = False
         if "record_new_recurrent_inhibition" in self.parameters_for_run:
@@ -94,13 +98,12 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
             non_gated_counts = area.counts_non_gated[0] + area.counts_non_gated[1]
             min_inputs_to_potentiate = 5
 
-        unique_counts = np.sort(np.unique(gated_counts))[:-1].astype(int)  # remove the NaN value
+        unique_counts = np.sort(np.unique(gated_counts))[:-1].astype(
+            int
+        )  # remove the NaN value
         unique_counts_non_gated = np.sort(np.unique(non_gated_counts))[:-1].astype(
             int
         )  # remove the NaN value
-
-        # print(unique_counts)
-        # print(unique_counts_non_gated)
 
         # randomly select samples to visualize
         select_ids_gated = []
@@ -111,10 +114,9 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
 
         self.potenitially_potenitated_dendrites = []
         for n_syn in range(min_inputs_to_potentiate, 18):
-            self.potenitially_potenitated_dendrites += list(np.where(gated_counts == n_syn)[0])
-        # print("Potentially potentiated for context 0:")
-        # print(len(self.potenitially_potenitated_dendrites))
-        # print(self.potenitially_potenitated_dendrites)
+            self.potenitially_potenitated_dendrites += list(
+                np.where(gated_counts == n_syn)[0]
+            )
 
         select_ids_non_gated = []
         self.select_ids_non_gated_counts = []
@@ -140,11 +142,18 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
                 self.network.add(mon)
 
                 neighbour_ids = [
-                    s_id + 1 if (s_id + 1) % self.parameters["n_dend_each"] != 0 else s_id - 1
+                    (
+                        s_id + 1
+                        if (s_id + 1) % self.parameters["n_dend_each"] != 0
+                        else s_id - 1
+                    )
                     for s_id in id_list
                 ]
                 mon = br.StateMonitor(
-                    area.dends, "V", record=neighbour_ids, dt=self.parameters["monitor_dt"]
+                    area.dends,
+                    "V",
+                    record=neighbour_ids,
+                    dt=self.parameters["monitor_dt"],
                 )
                 self.Mdends_V[name + "_neighbour"] = mon
                 self.network.add(mon)
@@ -164,7 +173,9 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
                     mon = br.StateMonitor(
                         area.synapses_E,
                         to_monitor,
-                        record=area.synapses_E[np.where((area.synapses_E.j)[:] == kk)[0]],
+                        record=area.synapses_E[
+                            np.where((area.synapses_E.j)[:] == kk)[0]
+                        ],
                         dt=self.parameters["monitor_dt_weights"],
                     )
                     monitor_list.append(mon)
@@ -204,7 +215,9 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
                     mon = br.StateMonitor(
                         area.synapses_E,
                         to_monitor,
-                        record=area.synapses_E[np.where((area.synapses_E.j)[:] == kk)[0]],
+                        record=area.synapses_E[
+                            np.where((area.synapses_E.j)[:] == kk)[0]
+                        ],
                         dt=self.parameters["monitor_dt_weights"],
                     )
                     monitor_list.append(mon)
@@ -243,7 +256,10 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
 
         if self.parameters_for_run["debug_mode"]:
             self.M_n_active = br.StateMonitor(
-                area.rec_inihib_pop, "n_active", record=True, dt=self.parameters["monitor_dt"]
+                area.rec_inihib_pop,
+                "n_active",
+                record=True,
+                dt=self.parameters["monitor_dt"],
             )
             self.network.add(self.M_n_active)
             self.M_somas_x = br.StateMonitor(
@@ -253,8 +269,6 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
                 dt=self.parameters["monitor_dt"],
             )
             self.network.add(self.M_somas_x)
-
-        # if self.record_new_recurrent_inhibition:
 
         if self.record_recurrent_inhibition:
             self.spM_rec_inhib = br.SpikeMonitor(area.rec_inihib_pop)
@@ -310,8 +324,10 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
             if "save_most_active_neuron_weights" in self.parameters_for_run:
                 if self.parameters_for_run["save_most_active_neuron_weights"]:
                     weights_recurrent = weights_recurrent[:, 0::6]
-                    sorted_neuron_ids, selected_ids, _ = self.sort_neurons_by_firing_rate(
-                        shuffle_rest=False, reverse_order=True
+                    sorted_neuron_ids, selected_ids, _ = (
+                        self.sort_neurons_by_firing_rate(
+                            shuffle_rest=False, reverse_order=True
+                        )
                     )
 
                     weights_recurrent = weights_recurrent[
@@ -348,7 +364,9 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
                     self.save_dict[f"weight_w_ff_2_{ii}_{name}"] = ww_2
 
         if self.parameters_for_run["debug_mode"]:
-            self.save_dict["voltage_dends_potentially_potentiated"] = self.Mdends_V["pot_pot"].V / mV
+            self.save_dict["voltage_dends_potentially_potentiated"] = (
+                self.Mdends_V["pot_pot"].V / mV
+            )
 
             for ii, _ in enumerate(self.potenitially_potenitated_dendrites):
                 ww = self.Msyns_w["pot_pot"][ii].w
@@ -358,8 +376,6 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
                 ww_2 = self.Mff_w["pot_pot"][ii * 2 + 1].w
                 self.save_dict[f"weight_w_ff_1_{ii}_pot_pot"] = ww_1
                 self.save_dict[f"weight_w_ff_2_{ii}_pot_pot"] = ww_2
-        # for key in self.save_dict:
-        # print(key, type(self.save_dict[key]))
 
     def run(self, report_period=10 * second, report_style=None):
         all_assembly_ids = self.parameters_for_run["all_assembly_ids"]
@@ -373,14 +389,18 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
         elif self.only_load_results:
             return None
 
-        for ii, (context_id, assembly_ids) in enumerate(zip(all_context_ids, all_assembly_ids)):
+        for ii, (context_id, assembly_ids) in enumerate(
+            zip(all_context_ids, all_assembly_ids)
+        ):
             self.area.stop_context()
             self.area.start_context(context_id)
 
             self.area.input_units_1[:].rates = self.parameters["ff_bck"]
             self.area.input_units_2[:].rates = self.parameters["ff_bck"]
 
-            self.network.run(runtime_baseline, report=report_style, report_period=report_period)
+            self.network.run(
+                runtime_baseline, report=report_style, report_period=report_period
+            )
 
             if assembly_ids[0] >= 0:
                 self.area.input_units_1[
@@ -396,7 +416,9 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
                     * self.parameters["assembly_size"]
                 ].rates = self.parameters["assembly_firing_rate"]
 
-            self.network.run(runtime_imprint, report=report_style, report_period=report_period)
+            self.network.run(
+                runtime_imprint, report=report_style, report_period=report_period
+            )
 
             self.create_save_dict()
             self.save_results()
@@ -405,7 +427,9 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
             self.area.input_units_2[:].rates = self.parameters["ff_bck"]
 
             if ii == np.min([len(all_context_ids), len(all_assembly_ids)]) - 1:
-                self.network.run(runtime_baseline, report=report_style, report_period=report_period)
+                self.network.run(
+                    runtime_baseline, report=report_style, report_period=report_period
+                )
 
         self.create_save_dict()
         self.save_results()
@@ -413,14 +437,18 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
         if "no_recall" in self.parameters_for_run:
             return
 
-        for ii, (context_id, assembly_ids) in enumerate(zip(all_context_ids, all_assembly_ids)):
+        for ii, (context_id, assembly_ids) in enumerate(
+            zip(all_context_ids, all_assembly_ids)
+        ):
             self.area.stop_context()
             self.area.start_context(context_id)
 
             self.area.input_units_1[:].rates = self.parameters["ff_bck"]
             self.area.input_units_2[:].rates = self.parameters["ff_bck"]
 
-            self.network.run(0.5 * second, report=report_style, report_period=report_period)
+            self.network.run(
+                0.5 * second, report=report_style, report_period=report_period
+            )
 
             if assembly_ids[0] >= 0:
                 self.area.input_units_1[
@@ -436,7 +464,9 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
                     * self.parameters["assembly_size"]
                 ].rates = self.parameters["assembly_firing_rate"]
 
-            self.network.run(1.5 * second, report=report_style, report_period=report_period)
+            self.network.run(
+                1.5 * second, report=report_style, report_period=report_period
+            )
 
             self.create_save_dict()
             self.save_results()
@@ -455,7 +485,6 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
                 return
 
         weights_loaded = self.save_dict["weights"]
-        print(self.save_dict["weights"].shape)
 
         matlab_save_dict = {"all_weights": weights_loaded}
 
@@ -469,12 +498,12 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
 
                 matlab_save_dict[f"weights_of_context_{context_id}"] = weights
 
-                print("new shape, ", weights.shape)
-
                 G = nx.from_numpy_array(weights, create_using=nx.DiGraph)
 
                 # Community detection (convert to undirected for the community detection if necessary)
-                partition = community_louvain.best_partition(G.to_undirected(), weight="weight")
+                partition = community_louvain.best_partition(
+                    G.to_undirected(), weight="weight"
+                )
 
                 # Create a mapping of node index to community
                 node_community_map = {
@@ -520,7 +549,9 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
 
             G = nx.from_numpy_array(only_neuron_weights, create_using=nx.DiGraph)
             # Community detection (convert to undirected for the community detection if necessary)
-            partition = community_louvain.best_partition(G.to_undirected(), weight="weight")
+            partition = community_louvain.best_partition(
+                G.to_undirected(), weight="weight"
+            )
 
             # Create a mapping of node index to community
             node_community_map = {
@@ -529,8 +560,6 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
 
             # Sort nodes by community
             sorted_nodes = sorted(node_community_map, key=node_community_map.get)
-
-            print(len(sorted_nodes))
 
             den_ids = []
             for neuron_id in sorted_nodes:
@@ -545,7 +574,9 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
 
             sorted_neuron_ids, _, _ = self.sort_neurons_by_firing_rate()
 
-            for context_id in np.sort(np.unique(self.parameters_for_run["all_context_ids"])):
+            for context_id in np.sort(
+                np.unique(self.parameters_for_run["all_context_ids"])
+            ):
                 if ax_counter == 0:
                     fig = plt.figure(figsize=(16, 7), constrained_layout=True)
                     gs = fig.add_gridspec(23, 20)
@@ -588,7 +619,9 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
         weights = self.save_dict["weights"]
         G = nx.from_numpy_array(weights, create_using=nx.DiGraph)
         partition = community_louvain.best_partition(G.to_undirected(), weight="weight")
-        node_community_map = {node: community for node, community in enumerate(partition.values())}
+        node_community_map = {
+            node: community for node, community in enumerate(partition.values())
+        }
         sorted_nodes = sorted(node_community_map, key=node_community_map.get)
 
         # Define a threshold for strong connections
@@ -604,11 +637,13 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
         components = list(nx.connected_components(G))
 
         # Assembly sizes are the sizes of the connected components
-        assembly_sizes = [len(component) for component in components if len(component) > 1]
+        assembly_sizes = [
+            len(component) for component in components if len(component) > 1
+        ]
 
         if show_plot:
             fig, (ax1, ax2) = plt.subplots(1, 2)
-            W_reordered = weights[np.ix_(sorted_nodes, sorted_nodes)]
+            _ = weights[np.ix_(sorted_nodes, sorted_nodes)]
             ax1.imshow(binary_matrix.T, cmap="Greys")
             ax2.imshow(weights.T, cmap="Greys")
             ax1.set(xlabel="Pre", ylabel="Post")
@@ -618,11 +653,15 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
             plt.show()
         return sorted_nodes, assembly_sizes
 
-    def sort_neurons_by_firing_rate(self, shuffle_rest=True, reverse_order=False, sort_by_rate=True):
+    def sort_neurons_by_firing_rate(
+        self, shuffle_rest=True, reverse_order=False, sort_by_rate=True
+    ):
         somas_time = np.copy(self.save_dict["spikes_somas_t"])
         somas_i = np.copy(self.save_dict["spikes_somas_i"])
 
-        unique_context_ids = list(np.sort(np.unique(self.parameters_for_run["all_context_ids"])))
+        unique_context_ids = list(
+            np.sort(np.unique(self.parameters_for_run["all_context_ids"]))
+        )
         all_firing_rates = [[] for nn in unique_context_ids]
 
         bsl = self.parameters_for_run["runtime_baseline"] / msecond
@@ -645,18 +684,9 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
             all_firing_rates[contex_id_index].append(all_firing_rates_somas)
 
         all_context_ids = self.parameters_for_run["all_context_ids"]
-        all_assembly_ids = self.parameters_for_run["all_assembly_ids"]
+        _ = self.parameters_for_run["all_assembly_ids"]
         unique_context_ids = np.unique(all_context_ids)
         sorted_neuron_ids = [[] for nn in unique_context_ids]
-        # all_assembly_ids_per_context = [
-        #     [
-        #         assembly_ids
-        #         for assembly_ids, context_id in zip(all_assembly_ids, all_context_ids)
-        #         if context_id == this_context
-        #     ]
-        #     for this_context in unique_context_ids
-        # ]
-        # # print("aaids:", all_assembly_ids_per_context)
 
         for ii, context_id in enumerate(unique_context_ids):
             for tt, all_rates in enumerate(np.array(all_firing_rates[ii])):
@@ -668,12 +698,16 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
                 )
 
                 # we only add those ids that are not yet part of the sorted ids
-                new_selected_ids = [si for si in selected_ids if si not in sorted_neuron_ids[ii]]
+                new_selected_ids = [
+                    si for si in selected_ids if si not in sorted_neuron_ids[ii]
+                ]
 
                 sorted_neuron_ids[ii] += new_selected_ids
 
             sorted_neuron_ids[ii] += [
-                ni for ni in range(self.parameters["n_somas"]) if ni not in sorted_neuron_ids[ii]
+                ni
+                for ni in range(self.parameters["n_somas"])
+                if ni not in sorted_neuron_ids[ii]
             ]
 
         return sorted_neuron_ids, selected_ids, all_rates
@@ -694,8 +728,12 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
             reverse_order=True, shuffle_rest=True
         )
         fig, (ax_inputs_1, ax_inputs_2, ax_recall) = plt.subplots(3)
-        end_of_imprint = (rtm + bsl) * len(self.parameters_for_run["all_assembly_ids"]) + bsl
-        unique_context_ids = list(np.sort(np.unique(self.parameters_for_run["all_context_ids"])))
+        end_of_imprint = (rtm + bsl) * len(
+            self.parameters_for_run["all_assembly_ids"]
+        ) + bsl
+        unique_context_ids = list(
+            np.sort(np.unique(self.parameters_for_run["all_context_ids"]))
+        )
         for tt in range(len(self.parameters_for_run["all_assembly_ids"])):
             context_id = self.parameters_for_run["all_context_ids"][tt]
             contex_id_index = unique_context_ids.index(context_id)
@@ -729,7 +767,9 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
                     spikes_are_after = spike_times_for_neuron > start
                     spikes_are_before = spike_times_for_neuron < end
                     spike_times_for_neuron_selection = (
-                        spike_times_for_neuron[np.logical_and(spikes_are_before, spikes_are_after)]
+                        spike_times_for_neuron[
+                            np.logical_and(spikes_are_before, spikes_are_after)
+                        ]
                         - start
                     )
 
@@ -763,7 +803,10 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
             ylim = ax.get_ylim()
             ax.annotate(
                 f"#{context_id}",
-                xy=(tt * 2.1 * rtm_recall + rtm_recall, ylim[1] + (ylim[1] - ylim[0]) * 0.05),
+                xy=(
+                    tt * 2.1 * rtm_recall + rtm_recall,
+                    ylim[1] + (ylim[1] - ylim[0]) * 0.05,
+                ),
                 ha="center",
                 va="center",
             )
@@ -841,7 +884,9 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
                 fig, axes = plt.subplots(n_rows, 2, sharex=True, figsize=(10, 8))
 
             plot_spikes_of_inputs(
-                ax1=axes.flatten()[0], ax2=axes.flatten()[1], context_colors=context_colors
+                ax1=axes.flatten()[0],
+                ax2=axes.flatten()[1],
+                context_colors=context_colors,
             )
 
             sorted_neuron_ids, _, _ = self.sort_neurons_by_firing_rate(
@@ -851,17 +896,18 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
             if order is not None:
                 sorted_neuron_ids = order
 
-            print(somas_i.shape, somas_time.shape)
-
             for jj, context_id in enumerate(
                 np.sort(np.unique(self.parameters_for_run["all_context_ids"]))
             ):
                 for ii, neuron_index in enumerate(sorted_neuron_ids[jj]):
                     spike_times_for_neuron = somas_time[somas_i == neuron_index]
                     ax = axes.flatten()[jj + 2]
-                    ax.vlines(spike_times_for_neuron, ymin=ii - 0.5, ymax=ii + 0.5, colors="k")
+                    ax.vlines(
+                        spike_times_for_neuron, ymin=ii - 0.5, ymax=ii + 0.5, colors="k"
+                    )
                     ax.set_title(
-                        f"Sorted for context {context_id}", color=context_colors[context_id]
+                        f"Sorted for context {context_id}",
+                        color=context_colors[context_id],
                     )
 
                     if show_SOM_activity:
@@ -869,14 +915,19 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
                             self.save_dict["spikes_rec_inhib_i"] == neuron_index
                         ]
                         ax.vlines(
-                            spike_times_SOM, ymin=ii - 0.3, ymax=ii + 0.3, colors="r", alpha=0.3
+                            spike_times_SOM,
+                            ymin=ii - 0.3,
+                            ymax=ii + 0.3,
+                            colors="r",
+                            alpha=0.3,
                         )
 
             if show_SOM_activity:
                 somas_x = self.save_dict["somas_x"]
                 time_x = self.save_dict["syn_to_rec_inhib_time"]
                 ax.imshow(
-                    somas_x[sorted_neuron_ids[0], :] > self.parameters["theta_som_rate_estimator"],
+                    somas_x[sorted_neuron_ids[0], :]
+                    > self.parameters["theta_som_rate_estimator"],
                     cmap="Blues",
                     alpha=0.4,
                     extent=[
@@ -909,7 +960,9 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
 
             plot_spikes_of_inputs(ax1=ax_inputs_1, ax2=ax_inputs_2)
 
-            unique_context_ids = list(np.sort(np.unique(self.parameters_for_run["all_context_ids"])))
+            unique_context_ids = list(
+                np.sort(np.unique(self.parameters_for_run["all_context_ids"]))
+            )
             sorted_neuron_ids, _, _ = self.sort_neurons_by_firing_rate(
                 reverse_order=True, shuffle_rest=shuffle_rest
             )
@@ -919,8 +972,6 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
 
                 start = (rtm + bsl) * tt + bsl * int(tt > 0)
                 end = start + rtm + bsl + bsl * int(tt < 1)
-                print(f"START ({tt}) : ", start)
-                print("END: ", end)
 
                 for ii, neuron_index in enumerate(sorted_neuron_ids[contex_id_index]):
                     spike_times_for_neuron = somas_time[somas_i == neuron_index]
@@ -932,7 +983,9 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
                     ]
 
                     ax = ax_sorted_all
-                    ax.vlines(spike_times_for_neuron, ymin=ii - 0.5, ymax=ii + 0.5, colors="k")
+                    ax.vlines(
+                        spike_times_for_neuron, ymin=ii - 0.5, ymax=ii + 0.5, colors="k"
+                    )
                     ax.set_title(
                         f"Sorted for corresponding context",
                     )
@@ -954,21 +1007,17 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
                 spike_times_for_neuron = somas_time[somas_i == neuron_index]
 
                 ax = ax_sorted_by_context
-                ax.vlines(spike_times_for_neuron, ymin=ii - 0.5, ymax=ii + 0.5, colors="k")
+                ax.vlines(
+                    spike_times_for_neuron, ymin=ii - 0.5, ymax=ii + 0.5, colors="k"
+                )
                 ax.set_title(
                     f"Sorted for context {sort_for_context}",
                 )
 
-                # if show_SOM_activity:
-                #     spike_times_SOM = self.save_dict["spikes_rec_inhib_t"][
-                #         self.save_dict["spikes_rec_inhib_i"] == neuron_index
-                #     ]
-                #     ax.vlines(
-                #         spike_times_SOM, ymin=ii - 0.3, ymax=ii + 0.3, colors="r", alpha=0.3
-                #     )
-
         fig, ax = plt.subplots(2)
-        ax[0].plot(self.save_dict["inhibitory_time"], self.save_dict["inhibitory_rate"][0, :])
+        ax[0].plot(
+            self.save_dict["inhibitory_time"], self.save_dict["inhibitory_rate"][0, :]
+        )
         ax[1].plot(self.save_dict["x_time"], self.save_dict["x_value"][0, :])
 
         if show_plot:
@@ -983,9 +1032,9 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
 
         fig_dim = int(np.ceil(np.sqrt(len(pot_pot) / 2)))
 
-        print(fig_dim, 2 * fig_dim)
-
-        fig, axes_dendrites = plt.subplots(fig_dim, 2 * fig_dim, sharex=True, sharey=True)
+        fig, axes_dendrites = plt.subplots(
+            fig_dim, 2 * fig_dim, sharex=True, sharey=True
+        )
         fig, axes_weights = plt.subplots(fig_dim, 2 * fig_dim, sharex=True, sharey=True)
         fig, axes_dist = plt.subplots(fig_dim, 2 * fig_dim, sharex=True, sharey=True)
         for ii in range(len(pot_pot)):
@@ -994,13 +1043,9 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
                 np.where(self.area.synapse_som_to_dend.j == dend_id)[0]
             ]
 
-            print(pre_som_neurons)
-
-            rec_inhib_n_active = self.save_dict["rec_inhib_n_active"][pre_som_neurons, :]
-
-            # print(rec_inhib_n_active.shape)
-            # print((self.save_dict["rec_inhib_n_active"][pre_som_neurons, :]).shape)
-            # return
+            rec_inhib_n_active = self.save_dict["rec_inhib_n_active"][
+                pre_som_neurons, :
+            ]
 
             ax = axes_dendrites.flatten()[ii]
             for mm in range(rec_inhib_n_active.shape[0]):
@@ -1020,9 +1065,7 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
                 self.save_dict[f"voltage_dends_potentially_potentiated"][ii],
             )
 
-            title = (
-                f"{self.area.counts_gated[0][pot_pot[ii]] + self.area.counts_gated[1][pot_pot[ii]]}"
-            )
+            title = f"{self.area.counts_gated[0][pot_pot[ii]] + self.area.counts_gated[1][pot_pot[ii]]}"
 
             if self.parameters_for_run["all_assembly_ids"][0][1] == -1:
                 title = f"{self.area.counts_gated[0][pot_pot[ii]]}"
@@ -1046,16 +1089,24 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
                 w_sum.append(w)
 
             for w in self.save_dict[f"weight_w_ff_1_{ii}_pot_pot"]:
-                ax.plot(self.save_dict["voltage_weights_t"], w, color="#1d91c0", alpha=0.2)
+                ax.plot(
+                    self.save_dict["voltage_weights_t"], w, color="#1d91c0", alpha=0.2
+                )
                 w_sum.append(w)
 
             for w in self.save_dict[f"weight_w_ff_2_{ii}_pot_pot"]:
-                ax.plot(self.save_dict["voltage_weights_t"], w, color="#54278f", alpha=0.2)
+                ax.plot(
+                    self.save_dict["voltage_weights_t"], w, color="#54278f", alpha=0.2
+                )
                 w_sum.append(w)
 
             ax = axes_dist.flatten()[ii]
             ax.set_title(title)
-            ax.hist(gather_weights, bins=np.linspace(0, self.parameters["w_max_rec"], 50), color="k")
+            ax.hist(
+                gather_weights,
+                bins=np.linspace(0, self.parameters["w_max_rec"], 50),
+                color="k",
+            )
             ax.set_ylim([0, 35])
 
             if ii % (2 * fig_dim) == 0:
@@ -1068,21 +1119,14 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
             plt.show()
 
     def show_traces_for_example_neurons(self, gated=True, show_plot=False):
-        for ii in range(10):
-            print(f"######### Final weights above {ii}")
-            print(np.sum(self.save_dict["weights"] > ii))
         fig, ax = plt.subplots()
         ax.hist(self.save_dict["weights"].flatten(), bins=np.linspace(0, 12, 40))
 
         counts = self.select_ids_gated_counts
         name = "gated"
-        main_color = "#2171b5"
-        neighbour_color = "#fd8d3c"
         if not gated:
             counts = self.select_ids_non_gated_counts
             name = "non_gated"
-            main_color = "#fd8d3c"
-            neighbour_color = "#6a51a3"
 
         fig, ax_w_sum = plt.subplots(1, len(counts))
         fig, axes = plt.subplots(3, len(counts), sharex=True)
@@ -1118,22 +1162,39 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
 
             try:
                 for w in self.save_dict[f"weight_w_ff_1_{ii}_{name}"]:
-                    ax.plot(self.save_dict["voltage_weights_t"], w, color="#1d91c0", alpha=0.2)
+                    ax.plot(
+                        self.save_dict["voltage_weights_t"],
+                        w,
+                        color="#1d91c0",
+                        alpha=0.2,
+                    )
                     w_sum.append(w)
 
                 for w in self.save_dict[f"weight_w_ff_2_{ii}_{name}"]:
-                    ax.plot(self.save_dict["voltage_weights_t"], w, color="#54278f", alpha=0.2)
+                    ax.plot(
+                        self.save_dict["voltage_weights_t"],
+                        w,
+                        color="#54278f",
+                        alpha=0.2,
+                    )
                     w_sum.append(w)
             except KeyError:
                 # This means we have an old version of the save dict
                 for w in self.save_dict[f"weight_w_ff_{ii}_{name}"]:
-                    ax.plot(self.save_dict["voltage_weights_t"], w, color="#1d91c0", alpha=0.2)
+                    ax.plot(
+                        self.save_dict["voltage_weights_t"],
+                        w,
+                        color="#1d91c0",
+                        alpha=0.2,
+                    )
                     w_sum.append(w)
 
             if ii == 0:
                 ax.set_ylabel("weight")
                 ax_w_sum[ii].set_ylabel("Summed Weight")
-            ax_w_sum[ii].plot(self.save_dict["voltage_weights_t"], np.sum(w_sum, axis=0))
+            ax_w_sum[ii].plot(
+                self.save_dict["voltage_weights_t"], np.sum(w_sum, axis=0)
+            )
             ax_w_sum[ii].set_xlabel("Time in ms")
             ax_w_sum[ii].set_title(self.area.dends[self.select_ids_gated[ii]].w_tot[:])
 
@@ -1142,7 +1203,10 @@ class NetworkMultipleContextsMultipleAssemblies(HandleParametersAndResults):
                 ax.set_yticklabels([])
                 ax.sharey(axes[2, 0])
 
-            ax.plot(self.save_dict["voltag_somas_t"], self.save_dict[f"voltage_soma_{name}"][0])
+            ax.plot(
+                self.save_dict["voltag_somas_t"],
+                self.save_dict[f"voltage_soma_{name}"][0],
+            )
             ax.set_xlabel("Time in mS")
             if ii == 0:
                 ax.set_ylabel("Somatic voltage in mV")

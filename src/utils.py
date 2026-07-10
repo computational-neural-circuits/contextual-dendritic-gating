@@ -1,7 +1,39 @@
+import os
 import numpy as np
 from brian2.units import *
 from sklearn.cluster import KMeans
-import matplotlib.pyplot as plt
+from os.path import abspath, dirname, join
+
+
+def get_path_to_save_file_name(folder_name, save_file_name):
+    path = abspath(
+        join(
+            dirname(__file__),
+            "..",
+            "results",
+            folder_name,
+            save_file_name,
+        )
+    )
+
+    # check if folder exist
+    path_to_results_folder = join(
+        dirname(__file__),
+        "..",
+        "results",
+    )
+    exists = os.path.exists(path_to_results_folder)
+    if not exists:
+        os.makedirs(path_to_results_folder)
+
+    path_to_specific_results_folder = join(
+        dirname(__file__), "..", "results", folder_name
+    )
+    exists = os.path.exists(path_to_specific_results_folder)
+    if not exists:
+        os.makedirs(path_to_specific_results_folder)
+
+    return path
 
 
 def get_firing_rate_for_single_neuron(start, end, spike_times_for_neuron):
@@ -21,7 +53,9 @@ def get_firing_rate_for_single_neuron(start, end, spike_times_for_neuron):
 
     spikes_are_after = spike_times_for_neuron > start
     spikes_are_before = spike_times_for_neuron < end
-    firing_rate = 1000 * np.sum(np.logical_and(spikes_are_before, spikes_are_after)) / part_time
+    firing_rate = (
+        1000 * np.sum(np.logical_and(spikes_are_before, spikes_are_after)) / part_time
+    )
 
     return firing_rate
 
@@ -48,7 +82,6 @@ def get_assembly_neuron_ids_by_weight_and_rate(
     high_cluster_label = np.argmax(kmeans.cluster_centers_)
 
     high_firing_indices = np.where(kmeans.labels_ == high_cluster_label)[0]
-    low_firing_indices = np.where(kmeans.labels_ != high_cluster_label)[0]
 
     selected_ids_from_firing_rate = list(high_firing_indices)
 
@@ -80,7 +113,9 @@ def get_assembly_neuron_ids_by_weight_and_rate(
                         net, shuffle_rest=False, reverse_order=True
                     )
                     sorted_neuron_ids = np.array(sorted_neuron_ids[0])
-                    weights_recurrent = np.ones((area.n_somas, area.n_somas)) * area.params["w0"]
+                    weights_recurrent = (
+                        np.ones((area.n_somas, area.n_somas)) * area.params["w0"]
+                    )
                     weights_recurrent[
                         np.ix_(
                             sorted_neuron_ids[: len(selected_ids) + 25],
@@ -98,14 +133,17 @@ def get_assembly_neuron_ids_by_weight_and_rate(
         raise ValueError("You are using startig weights to detect assmebly size")
 
     # get the dendrite shape
-    print("recurrent weights, shape: ", weights_recurrent.shape)
     if not (weights_recurrent.shape[0] == weights_recurrent.shape[1]):
         dend_dim = np.argmax([weights_recurrent.shape])
         if weights_recurrent.shape[dend_dim] == area.n_dends:
             if dend_dim == 0:
-                weights_recurrent = weights_recurrent[np.sort(area.dends_of_ctxt[context_id]), :]
+                weights_recurrent = weights_recurrent[
+                    np.sort(area.dends_of_ctxt[context_id]), :
+                ]
             else:
-                weights_recurrent = weights_recurrent[:, np.sort(area.dends_of_ctxt[context_id])]
+                weights_recurrent = weights_recurrent[
+                    :, np.sort(area.dends_of_ctxt[context_id])
+                ]
 
     # now we reduce the weights on the rate-sorted weights
 
@@ -131,30 +169,15 @@ def get_assembly_neuron_ids_by_weight_and_rate(
     mean_weights = []
     for cluster_id in range(n_clusters):
         neuron_ids = np.where(labels == cluster_id)[0]
-        mean_weights.append(np.mean(cut_weights_recurrent[np.ix_(neuron_ids, neuron_ids)]))
+        mean_weights.append(
+            np.mean(cut_weights_recurrent[np.ix_(neuron_ids, neuron_ids)])
+        )
         clusters.append(neuron_ids)
 
     selected_ids = clusters[np.argmax(mean_weights)]
-    print("? ", mean_weights, len(selected_ids), context_id)
 
     final_selected_ids = [selected_ids_from_firing_rate[ii] for ii in selected_ids]
 
-    # fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2)
-    # ax1.imshow(weights_recurrent.T)
-
-    # ax2.imshow(
-    #     weights_recurrent[np.ix_(selected_ids_from_firing_rate, selected_ids_from_firing_rate[:])].T
-    # )
-    # ax3.imshow(cut_weights_recurrent[np.ix_(selected_ids, selected_ids)].T)
-    # ax4.imshow(
-    #     cut_weights_recurrent[
-    #         np.ix_(clusters[np.argmin(mean_weights)], clusters[np.argmin(mean_weights)][:])
-    #     ].T
-    # )
-    # ax2.set(xlabel="Pre", ylabel="Post")
-    # ax3.set(xlabel="Pre", ylabel="Post")
-    # ax1.set(xlabel="Pre", ylabel="Post")
-    # plt.show()
     return final_selected_ids
 
 
@@ -162,7 +185,9 @@ def old_way_to_sort(net, shuffle_rest=True, reverse_order=False):
     somas_time = np.copy(net.save_dict["spikes_somas_t"])
     somas_i = np.copy(net.save_dict["spikes_somas_i"])
 
-    unique_context_ids = list(np.sort(np.unique(net.parameters_for_run["all_context_ids"])))
+    unique_context_ids = list(
+        np.sort(np.unique(net.parameters_for_run["all_context_ids"]))
+    )
     all_firing_rates = [[] for nn in unique_context_ids]
 
     bsl = net.parameters_for_run["runtime_baseline"] / msecond
@@ -183,7 +208,9 @@ def old_way_to_sort(net, shuffle_rest=True, reverse_order=False):
             spikes_are_after = spike_times_for_neuron > start
             spikes_are_before = spike_times_for_neuron < end
             neuron_firing_rate = (
-                1000 * np.sum(np.logical_and(spikes_are_before, spikes_are_after)) / part_time
+                1000
+                * np.sum(np.logical_and(spikes_are_before, spikes_are_after))
+                / part_time
             )
 
             # 1000 * to get to Hz
@@ -202,8 +229,6 @@ def old_way_to_sort(net, shuffle_rest=True, reverse_order=False):
         ]
         for this_context in unique_context_ids
     ]
-    # print("aaids:", all_assembly_ids_per_context)
-
     for ii, context_id in enumerate(unique_context_ids):
         mask = np.zeros(net.parameters["n_somas"]).astype(bool)
         for tt, all_rates in enumerate(np.array(all_firing_rates[ii])):

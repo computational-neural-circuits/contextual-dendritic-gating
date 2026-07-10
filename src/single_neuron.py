@@ -1,9 +1,6 @@
 import brian2 as br
 from brian2.units import *
 import numpy as np
-import matplotlib.pyplot as plt
-import networkx as nx
-import community as community_louvain
 
 from src.handle_parameters_and_results import HandleParametersAndResults
 from src.area import Area
@@ -54,14 +51,18 @@ class SingleNeuron(HandleParametersAndResults):
         n_dendrites = self.parameters["n_dend_each"]
 
         # Calculate connections per dendrite
-        self.n_inputs_ff_per_dendrite = round(self.ff_p * potential_presynaptic_pool_size)
+        self.n_inputs_ff_per_dendrite = round(
+            self.ff_p * potential_presynaptic_pool_size
+        )
 
         # Step 1: Generate the random connections to determine which presynaptic neurons are used
         random_connections = []
         for dendrite_idx in range(n_dendrites):
             # Randomly connect neurons from the potential pool to this dendrite
             connected_neurons = np.random.choice(
-                potential_presynaptic_pool_size, size=self.n_inputs_ff_per_dendrite, replace=False
+                potential_presynaptic_pool_size,
+                size=self.n_inputs_ff_per_dendrite,
+                replace=False,
             )
             for neuron_idx in connected_neurons:
                 random_connections.append((int(neuron_idx), dendrite_idx))
@@ -71,7 +72,9 @@ class SingleNeuron(HandleParametersAndResults):
         self.n_inputs_ff = len(unique_neurons)
 
         # Step 3: Create the presynaptic neurons (only the ones we need)
-        self.input_units_ff = br.PoissonGroup(self.n_inputs_ff, rates=self.parameters["ff_bck"])
+        self.input_units_ff = br.PoissonGroup(
+            self.n_inputs_ff, rates=self.parameters["ff_bck"]
+        )
 
         # Step 4: Create sequential connections (first n to dendrite 0, etc.)
         sources = []
@@ -90,10 +93,11 @@ class SingleNeuron(HandleParametersAndResults):
                     targets.append(target_id)
 
         # Create recurrent input units
-        self.input_units_rec = br.PoissonGroup(self.n_somas - 1, rates=self.parameters["ff_bck"])
+        self.input_units_rec = br.PoissonGroup(
+            self.n_somas - 1, rates=self.parameters["ff_bck"]
+        )
 
         if "prevent_plasticity" in self.parameters_for_run:
-            # print("#######, PREVENT PLASTICITY")
             if self.parameters_for_run["prevent_plasticity"]:
                 self.equations[
                     "Synapse_net"
@@ -101,9 +105,7 @@ class SingleNeuron(HandleParametersAndResults):
                        dsNMDARise/dt = -sNMDARise/tauNMDARise : 1 (clock-driven)
                        iTotNMDA1_post = -w*gNMDA*sNMDA*(V_post-vE_pyr)/(1+exp(-(V_post-vHalfNMDA)/vSpreadNMDA)) : amp (summed)
                         w : 1"""
-                self.equations[
-                    "on_pre"
-                ] = """sNMDARise = 1
+                self.equations["on_pre"] = """sNMDARise = 1
                     gTotAMPA_post += w * gAMPA"""
 
                 if "make_nmda_spikes_linear" in self.parameters_for_run:
@@ -127,10 +129,11 @@ class SingleNeuron(HandleParametersAndResults):
                     """
 
         if "inhibitory_rate" in self.parameters_for_run:
-            # print("set inhibitory rate")
             self.parameters["ff_inhib_gain"] = 0
             self.parameters["ff_inhib_intercept"] = -1
-            self.parameters["ff_inhib_baseline"] = self.parameters_for_run["inhibitory_rate"]
+            self.parameters["ff_inhib_baseline"] = self.parameters_for_run[
+                "inhibitory_rate"
+            ]
         else:
             raise ValueError
 
@@ -157,7 +160,9 @@ class SingleNeuron(HandleParametersAndResults):
         self.area.input_synapses[1].connect(p=1)
         self.area.input_synapses[1].w[:] = self.parameters["w0"]
 
-        self.area.dends.w_min_ff[:] = 0  # to not clip the recurrent weights to the min_ff
+        self.area.dends.w_min_ff[:] = (
+            0  # to not clip the recurrent weights to the min_ff
+        )
 
         self.area.add_silent_synapses = False
 
@@ -169,7 +174,10 @@ class SingleNeuron(HandleParametersAndResults):
         area = self.area
         area.add_silent_synapses = True
 
-        all_rates = [self.parameters["assembly_firing_rate"] * (0.5 + ii / (9)) for ii in range(10)]
+        all_rates = [
+            self.parameters["assembly_firing_rate"] * (0.5 + ii / (9))
+            for ii in range(10)
+        ]
         area.silent_pre_population = br.PoissonGroup(len(all_rates), rates=all_rates)
         area.silent_synapses = br.Synapses(
             area.silent_pre_population,
@@ -187,7 +195,9 @@ class SingleNeuron(HandleParametersAndResults):
         targets = [ii // len(all_rates) for ii in range(area.n_dends * len(all_rates))]
 
         area.silent_synapses.connect(i=sources, j=targets)
-        area.silent_synapses.w = self.parameters_for_run["silent_synapse_starting_weight"]
+        area.silent_synapses.w = self.parameters_for_run[
+            "silent_synapse_starting_weight"
+        ]
 
         self.network.add(area.silent_pre_population, area.silent_synapses)
 
@@ -196,9 +206,15 @@ class SingleNeuron(HandleParametersAndResults):
         area = self.area
 
         if not area.add_silent_synapses or self.record_all:
-            self.spM_somas = br.SpikeMonitor(area.somas, name=f"somata_monitor_{area.name}")
-            self.spM_inputs = br.SpikeMonitor(area.input_units_1, name=f"input_monitor_{area.name}")
-            self.spM_inhibition = br.SpikeMonitor(area.ff_inhibitors, name=f"ff_monitor_{area.name}")
+            self.spM_somas = br.SpikeMonitor(
+                area.somas, name=f"somata_monitor_{area.name}"
+            )
+            self.spM_inputs = br.SpikeMonitor(
+                area.input_units_1, name=f"input_monitor_{area.name}"
+            )
+            self.spM_inhibition = br.SpikeMonitor(
+                area.ff_inhibitors, name=f"ff_monitor_{area.name}"
+            )
             self.network.add(self.spM_somas, self.spM_inputs, self.spM_inhibition)
 
             self.Mdends_V = br.StateMonitor(
@@ -217,9 +233,13 @@ class SingleNeuron(HandleParametersAndResults):
             )
             self.network.add(self.Msomas_V)
 
-            synapse_ids_that_target_the_dendrite_0 = np.where(area.input_synapses[0].j == 0)[0]
+            synapse_ids_that_target_the_dendrite_0 = np.where(
+                area.input_synapses[0].j == 0
+            )[0]
 
-            synapse_ids_that_target_the_dendrite_1 = np.where(area.input_synapses[0].j == 1)[0]
+            synapse_ids_that_target_the_dendrite_1 = np.where(
+                area.input_synapses[0].j == 1
+            )[0]
 
             self.Mff_w = br.StateMonitor(
                 area.input_synapses[0],
@@ -275,7 +295,9 @@ class SingleNeuron(HandleParametersAndResults):
         self.area.start_context(0)
         self.area.input_units_1[:].rates = self.parameters["ff_bck"]
         if n_active_inputs > 0:
-            self.area.input_units_1[:n_active_inputs].rates = self.parameters["assembly_firing_rate"]
+            self.area.input_units_1[:n_active_inputs].rates = self.parameters[
+                "assembly_firing_rate"
+            ]
 
         self.network.run(runtime, report=report_style, report_period=report_period)
 
@@ -284,7 +306,9 @@ class SingleNeuron(HandleParametersAndResults):
 
     def run_different_contexts(self, report_period=10 * second, report_style=None):
         runtime = self.parameters_for_run["runtime"]
-        n_active_inputs_per_dendrite = self.parameters_for_run["n_active_inputs_per_dendrite"]
+        n_active_inputs_per_dendrite = self.parameters_for_run[
+            "n_active_inputs_per_dendrite"
+        ]
         all_context_ids = self.parameters_for_run["all_context_ids"]
 
         if self.check_for_results():
@@ -298,7 +322,9 @@ class SingleNeuron(HandleParametersAndResults):
             self.area.input_units_1[:].rates = self.parameters["ff_bck"]
             for ii, n_active_inputs in enumerate(n_active_inputs_per_dendrite):
                 self.area.input_units_1[
-                    self.n_inputs_ff_per_dendrite * ii : self.n_inputs_ff_per_dendrite * ii
+                    self.n_inputs_ff_per_dendrite
+                    * ii : self.n_inputs_ff_per_dendrite
+                    * ii
                     + n_active_inputs
                 ].rates = self.parameters["assembly_firing_rate"]
 
@@ -318,7 +344,9 @@ class SingleNeuron(HandleParametersAndResults):
         elif self.only_load_results:
             return None
 
-        all_weight_changes = np.zeros((10, len(all_n_active), len(all_inhibitory_rates)))
+        all_weight_changes = np.zeros(
+            (10, len(all_n_active), len(all_inhibitory_rates))
+        )
 
         new_pars_for_run = {}
         new_pars_for_run.update(self.parameters_for_run)
@@ -338,6 +366,7 @@ class SingleNeuron(HandleParametersAndResults):
                     save_file_name=self.save_file_name,
                     save_parameters=False,
                     parameter_dict=self.parameters,
+                    new_file_to_save_to=self.new_file_to_save_to,
                 )
                 neuron.run(report_style="text")
 
@@ -350,7 +379,8 @@ class SingleNeuron(HandleParametersAndResults):
                 ]
 
                 all_weight_changes[:, ii, jj] = np.mean(
-                    synapses_to_look_at[:] - new_pars_for_run["silent_synapse_starting_weight"],
+                    synapses_to_look_at[:]
+                    - new_pars_for_run["silent_synapse_starting_weight"],
                     axis=0,
                 )
 

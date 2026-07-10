@@ -10,7 +10,7 @@ from src.network_multiple_contexts_multiple_assemblies import (
 from src.network_ff_inhibition import run_sim
 import matplotlib.pyplot as plt
 
-plt.style.use("../../plots_style.txt")
+plt.style.use("../plots_style.txt")
 
 
 parameter_dict = {}
@@ -24,7 +24,7 @@ parameters_for_run = {
 }
 
 
-def paper_fig_sup_2(only_load_results=False):
+def Fig_S3(only_load_results=False):
     (
         fig,
         axes_normalization_weights_over_time,
@@ -36,8 +36,7 @@ def paper_fig_sup_2(only_load_results=False):
         axes_ff_plasticity,
         ff_inhibition_axes,
         rec_inhibition_axes,
-        rec_inhibition_axes_association,
-    ) = create_figure_layout_paper_fig_sup_2()
+    ) = create_figure_layout_Fig_S3()
 
     networks = {}
 
@@ -54,7 +53,7 @@ def paper_fig_sup_2(only_load_results=False):
         net = NetworkSingleImprint(
             parameter_file_name="parameters",
             parameters_for_run=parameters_for_run,
-            save_file_name="run_single_imprint",
+            save_file_name="data_Fig_S3_single",
             parameter_dict=parameter_dict,
             only_load_results=False,
         )
@@ -120,21 +119,14 @@ def paper_fig_sup_2(only_load_results=False):
 
     reccurrent_inhibition_compare_on_vs_off(
         n_seeds=500,
-        run_association=False,
         axes=rec_inhibition_axes,
     )
 
-    reccurrent_inhibition_compare_on_vs_off(
-        n_seeds=500,
-        run_association=True,
-        axes=rec_inhibition_axes_association,
-    )
-
     fig.tight_layout()
-    fig.savefig("../../results/figures/paper_fig_sup_2.pdf", dpi=800)
+    fig.savefig("../results/figures/Fig_S3.pdf", dpi=800)
 
 
-def create_figure_layout_paper_fig_sup_2():
+def create_figure_layout_Fig_S3():
     fig = plt.figure(figsize=(48, 48))
     gs = fig.add_gridspec(16, 16, hspace=1, wspace=1)
 
@@ -164,18 +156,6 @@ def create_figure_layout_paper_fig_sup_2():
     x_hist_rates = fig.add_subplot(gs[8:9, 6:9], sharex=main_ax_rates)
     y_hist_rates = fig.add_subplot(gs[9:12, 9:10], sharey=main_ax_rates)
 
-    main_ax_weights = fig.add_subplot(gs[9:12, 10:13])
-    x_hist_weights = fig.add_subplot(gs[8:9, 10:13], sharex=main_ax_weights)
-    y_hist_weights = fig.add_subplot(gs[9:12, 13:14], sharey=main_ax_weights)
-
-    main_ax_rates_assoc = fig.add_subplot(gs[13:16, 6:9])
-    x_hist_rates_assoc = fig.add_subplot(gs[12:13, 6:9], sharex=main_ax_rates)
-    y_hist_rates_assoc = fig.add_subplot(gs[13:16, 9:10], sharey=main_ax_rates)
-
-    main_ax_weights_assoc = fig.add_subplot(gs[13:16, 10:13])
-    x_hist_weights_assoc = fig.add_subplot(gs[12:13, 10:13], sharex=main_ax_weights)
-    y_hist_weights_assoc = fig.add_subplot(gs[13:16, 13:14], sharey=main_ax_weights)
-
     return (
         fig,
         (ax_norm_group_1, ax_norm_group_2, ax_norm_group_3, ax_norm_group_4),
@@ -191,20 +171,17 @@ def create_figure_layout_paper_fig_sup_2():
         ax_recurrent_spikes,
         (ax_ff_over_time, ax_ff_matrix_before, ax_ff_matrix_after),
         (ax_ff_inhibtion_threshold, ax_ff_inhibtion_n_potentiated),
-        (main_ax_rates, x_hist_rates, y_hist_rates, main_ax_weights, x_hist_weights, y_hist_weights),
-        (
-            main_ax_rates_assoc,
-            x_hist_rates_assoc,
-            y_hist_rates_assoc,
-            main_ax_weights_assoc,
-            x_hist_weights_assoc,
-            y_hist_weights_assoc,
-        ),
+        (main_ax_rates, x_hist_rates, y_hist_rates),
     )
 
 
 def feedforward_plasticity(
-    net, axes=None, show_plot=False, random_samples=0, show_range=[2000, 32000], max_pre_id=None
+    net,
+    axes=None,
+    show_plot=False,
+    random_samples=0,
+    show_range=[2000, 32000],
+    max_pre_id=None,
 ):
     if axes is None:
         fig, axes = plt.subplots(1, 3)
@@ -255,7 +232,6 @@ def feedforward_plasticity(
             np.random.seed(5)
             samples = np.random.choice(len(weight), size=random_samples, replace=False)
 
-            this_label = label
             for sp in samples:
                 ax1.plot(plot_time, weight[sp][:], color=color, alpha=0.4, label=label)
                 label = None
@@ -263,20 +239,17 @@ def feedforward_plasticity(
     ax1.set(xlabel="Time in ms", ylabel="avg. weight ff", xlim=show_range)
     ax1.legend()
 
-    weights_ff_1 = net.save_dict["weights_ff_1"]
-    weights_ff_2 = net.save_dict["weights_ff_2"]
-    weights_ff = np.vstack([net.save_dict["weights_ff_1"], net.save_dict["weights_ff_2"]])
+    weights_ff = np.vstack(
+        [net.save_dict["weights_ff_1"], net.save_dict["weights_ff_2"]]
+    )
     weights_ff_pre = np.copy(weights_ff)
     weights_ff_pre[weights_ff != 0] = net.area.params["ff_w"]
 
     sorted_neuron_ids, _ = net.sort_neurons_by_firing_rate(shuffle_rest=False)
-    sorted_neuron_ids = sorted_neuron_ids[0][::-1]
+    sorted_neuron_ids = sorted_neuron_ids[::-1]
     sorted_dendrite_ids = []
 
-    # resorted_weights = np.zeros_like(weights_loaded_recurrent)
-
     for nn in range(400):
-        # for mm in range(net.parameters["n_dend_each"]):
         sorted_dendrite_ids += [
             ii + net.parameters["n_dend_each"] * sorted_neuron_ids[nn]
             for ii in range(net.parameters["n_dend_each"])
@@ -288,8 +261,10 @@ def feedforward_plasticity(
         max_pre_id = net.parameters["n_somas"] * 2
 
     for ww, ax in zip([weights_ff_pre, weights_ff], [ax2, ax3]):
-        weights = ww[np.ix_([ii for ii in range(max_pre_id)], sorted_dendrite_ids[:y_max])]
-        im = ax.imshow(
+        weights = ww[
+            np.ix_([ii for ii in range(max_pre_id)], sorted_dendrite_ids[:y_max])
+        ]
+        _ = ax.imshow(
             weights.T,
             cmap="Greys",
             origin="lower",
@@ -310,7 +285,11 @@ def feedforward_plasticity(
 
 
 def show_weight_matrix_sorted(
-    net, ax, sort_by_firing_rate_or_strongest_avg_weight=True, take_first_x_neurons=400, y_max=180
+    net,
+    ax,
+    sort_by_firing_rate_or_strongest_avg_weight=True,
+    take_first_x_neurons=400,
+    y_max=180,
 ):
     weights_loaded_recurrent = net.save_dict["weights"]
     # sorted_neuron_ids, _ = net.sort_neurons_by_firing_rate(shuffle_rest=False)
@@ -325,19 +304,20 @@ def show_weight_matrix_sorted(
         )
         selected_ids = sorted_neuron_ids_by_inputs[:threshold_id]
 
-        sorted_neuron_ids_by_outputs = list(np.argsort(np.sum(weights_loaded_recurrent, 1)))[::-1]
+        sorted_neuron_ids_by_outputs = list(
+            np.argsort(np.sum(weights_loaded_recurrent, 1))
+        )[::-1]
 
         sorted_neuron_ids = list(selected_ids) + [
             n_id for n_id in sorted_neuron_ids_by_outputs if n_id not in selected_ids
         ]
     else:
         sorted_neuron_ids, _ = net.sort_neurons_by_firing_rate(shuffle_rest=False)
-        sorted_neuron_ids = sorted_neuron_ids[0][::-1]  # we only look at one context
+        sorted_neuron_ids = sorted_neuron_ids[::-1]  # we only look at one context
 
     sorted_dendrite_ids = []
 
     for nn in range(take_first_x_neurons):
-        # for mm in range(net.parameters["n_dend_each"]):
         sorted_dendrite_ids += [
             ii + net.parameters["n_dend_each"] * sorted_neuron_ids[nn]
             for ii in range(net.parameters["n_dend_each"])
@@ -345,13 +325,12 @@ def show_weight_matrix_sorted(
 
     weights = weights_loaded_recurrent[:, :]
     weights = weights[np.ix_(sorted_neuron_ids, sorted_dendrite_ids[:y_max])]
-    im = ax.imshow(
+    _ = ax.imshow(
         weights.T,
         cmap="Greys",
         origin="lower",
         extent=[-0.5, net.parameters["n_somas"] - 0.5, -0.5, y_max - 0.5],
     )
-    # ax[1].set_aspect(2)
     yticks = [ii for ii in range(y_max) if ii % net.parameters["n_dend_each"] == 0]
     ax.set(
         aspect=2,
@@ -362,7 +341,9 @@ def show_weight_matrix_sorted(
     )
 
 
-def plot_norm_vs_no_norm(net, ax, label, random_samples=0, show_range=[2000, 12000], set_ylim=False):
+def plot_norm_vs_no_norm(
+    net, ax, label, random_samples=0, show_range=[2000, 12000], set_ylim=False
+):
     pot_pot = net.potenitially_potentiated_dendrites
 
     cat_1 = []  # gated and at least four inputs from within assembly
@@ -399,7 +380,9 @@ def plot_norm_vs_no_norm(net, ax, label, random_samples=0, show_range=[2000, 120
 
     plot_time = net.save_dict["voltage_weights_t"]
 
-    for ii, (cat, name, color) in enumerate(zip([cat_1, cat_2, cat_3, cat_4], names, colors)):
+    for ii, (cat, name, color) in enumerate(
+        zip([cat_1, cat_2, cat_3, cat_4], names, colors)
+    ):
         # randomly sample x synapses
         ls = "-"
         if label == "no normalization":
@@ -442,11 +425,15 @@ def show_ltp_ltd_threshold_and_n_potentiated_dendrites(
     n_max_inputs = 12
     n_different_inptus = n_active_end - n_active_start
 
-    n_ltp_in_total = np.zeros((n_seeds, 2, n_different_inptus)).astype(float) * float("nan")
-    fraction_of = np.zeros((n_seeds, n_max_inputs, 2, n_different_inptus)).astype(float) * float(
+    n_ltp_in_total = np.zeros((n_seeds, 2, n_different_inptus)).astype(float) * float(
         "nan"
     )
-    ltp_ltd_threshold = np.zeros((n_seeds, 2, n_different_inptus)).astype(float) * float("nan")
+    fraction_of = np.zeros((n_seeds, n_max_inputs, 2, n_different_inptus)).astype(
+        float
+    ) * float("nan")
+    ltp_ltd_threshold = np.zeros((n_seeds, 2, n_different_inptus)).astype(
+        float
+    ) * float("nan")
 
     for seed_id, seed in enumerate(range(n_seeds)):
         for ii in range(n_different_inptus):
@@ -459,6 +446,7 @@ def show_ltp_ltd_threshold_and_n_potentiated_dendrites(
                     return_results=True,
                     prevent_plasticity=prevent_plasticity,
                     only_load_results=only_load_results,
+                    save_file_name="data_Fig_S3_ff_inhibition",
                 )
 
                 weights = net.save_dict["silent_synapses_weight"]
@@ -478,7 +466,9 @@ def show_ltp_ltd_threshold_and_n_potentiated_dendrites(
                         if count == n_inputs:
                             if (
                                 weights[nn, -1]
-                                > net.parameters_for_run["silent_synapse_starting_weight"]
+                                > net.parameters_for_run[
+                                    "silent_synapse_starting_weight"
+                                ]
                             ):
                                 ltp += 1
                             else:
@@ -497,11 +487,9 @@ def show_ltp_ltd_threshold_and_n_potentiated_dendrites(
                 )
 
                 n_ltp_in_total[seed_id, jj, ii] = np.sum(
-                    weights[:, -1] > net.parameters_for_run["silent_synapse_starting_weight"]
+                    weights[:, -1]
+                    > net.parameters_for_run["silent_synapse_starting_weight"]
                 )
-
-    # fig, ax = plt.subplots()
-    # ax.plot()
 
     if axes is None:
         fig, (ax1, ax2) = plt.subplots(1, 2)
@@ -531,18 +519,14 @@ def show_ltp_ltd_threshold_and_n_potentiated_dendrites(
 
 def load_recurrent_inhibition_comparison(
     n_seeds=500,
-    run_association=False,
 ):
-    estimated_size_from_rates = np.zeros((n_seeds, 2)) * float("NaN")
+    estimated_size_from_rates_and_weights = np.zeros((n_seeds, 2)) * float("NaN")
     estimated_size_from_weights = np.zeros((n_seeds, 2)) * float("NaN")
 
     for seed_id, seed in enumerate(range(n_seeds)):
         print(f"START WITH {seed}")
-        save_file_name = "recurrent_inhibition_multicore_run"
+        save_file_name = "data_Fig_S3_recurrent_inhibition_many"
         assembly_ids = [(0, -1)]
-        if run_association:
-            assembly_ids = [(0, 0)]
-            save_file_name += "_association"
         contexts = [0]
 
         parameter_dict = {}
@@ -577,29 +561,32 @@ def load_recurrent_inhibition_comparison(
                 continue
 
             _, assembly_sizes_by_weights = net.sort_neurons_by_weights(show_plot=False)
-            _, assembly_neuron_ids, sorted_rates = net.sort_neurons_by_firing_rate()
+            _, assembly_neuron_ids, _ = net.sort_neurons_by_firing_rate()
+            # not a good naming convention, this method acutally uses to sort by weight and rate
 
-            estimated_size_from_rates[seed_id, jj] = len(assembly_neuron_ids)
+            estimated_size_from_rates_and_weights[seed_id, jj] = len(
+                assembly_neuron_ids
+            )
             estimated_size_from_weights[seed_id, jj] = assembly_sizes_by_weights[0]
 
         for jj in range(2):
-            if np.isnan(estimated_size_from_rates[seed_id, jj]):
-                estimated_size_from_rates[seed_id, (jj + 1) % 2] = float("nan")
+            if np.isnan(estimated_size_from_rates_and_weights[seed_id, jj]):
+                estimated_size_from_rates_and_weights[seed_id, (jj + 1) % 2] = float(
+                    "nan"
+                )
                 estimated_size_from_weights[seed_id, (jj + 1) % 2] = float("nan")
 
-    return estimated_size_from_rates, estimated_size_from_weights
+    return (estimated_size_from_rates_and_weights, estimated_size_from_weights)
 
 
 def reccurrent_inhibition_compare_on_vs_off(
     n_seeds=500,
-    run_association=False,
     axes=None,
     min_val=10,
     max_val=120,
 ):
-    estimated_size_from_rates, estimated_size_from_weights = load_recurrent_inhibition_comparison(
+    estimated_size_from_rates, _ = load_recurrent_inhibition_comparison(
         n_seeds=n_seeds,
-        run_association=run_association,
     )
 
     show_corner_plot(
@@ -608,15 +595,6 @@ def reccurrent_inhibition_compare_on_vs_off(
         ylabel="rec on (sorted by rates)",
         xlabel="rec off (sorted by rates)",
         axes=axes[:3],
-        min_val=min_val,
-        max_val=max_val,
-    )
-    show_corner_plot(
-        y=estimated_size_from_weights[:, 0],
-        x=estimated_size_from_weights[:, 1],
-        ylabel="rec on (sorted by weights)",
-        xlabel="rec off (sorted by weights)",
-        axes=axes[3:],
         min_val=min_val,
         max_val=max_val,
     )
@@ -647,7 +625,13 @@ def show_corner_plot(x, y, xlabel="x", ylabel="y", axes=None, min_val=10, max_va
     plt.setp(x_hist.get_xticklabels(), visible=False)
 
     # Histogram for the y axis
-    y_hist.hist(y, bins=np.arange(max_val) - 0.5, orientation="horizontal", alpha=0.7, density=True)
+    y_hist.hist(
+        y,
+        bins=np.arange(max_val) - 0.5,
+        orientation="horizontal",
+        alpha=0.7,
+        density=True,
+    )
     plt.setp(y_hist.get_yticklabels(), visible=False)
 
     # Hide spines for histograms
@@ -662,4 +646,4 @@ def show_corner_plot(x, y, xlabel="x", ylabel="y", axes=None, min_val=10, max_va
 
 
 if __name__ == "__main__":
-    paper_fig_sup_2(only_load_results=True)
+    Fig_S3(only_load_results=True)
