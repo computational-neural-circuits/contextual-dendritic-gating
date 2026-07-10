@@ -1,24 +1,22 @@
 from brian2.units import *
-import brian2 as br2
 import numpy as np
 
 from src.network_recall import (
     NetworkRecall,
 )
 from src.get_activity_metrics import get_activity_metrics_from_assembly_neurons
-from figure_4 import run_large_imprint_with_recall
-import matplotlib as mpl
+from src.utils import get_path_to_save_file_name
 import matplotlib.pyplot as plt
-from matplotlib.colorbar import ColorbarBase
 from multiprocessing import Pool
-from matplotlib_venn import venn3
+from matplotlib_venn import venn3, venn3_circles, venn2, venn2_circles
 
-# Former figure_5.py - now removed case=1 (inputs into Y and Z instead of only into Y)
+plt.style.use("../plots_style.txt")
 
 
-def paper_figure_7(only_load_results=False):
+def Fig_8(only_load_results=False):
+
     (
-        fig,
+        fig_full,
         axes_recall_with_orders,
         axes_recall_with_orders_normed,
         ax_recall_orders_avg,
@@ -28,11 +26,25 @@ def paper_figure_7(only_load_results=False):
         ax_recall_orders_venn_area_Z,
         ax_recall_orders_venn_area_Y_association,
         ax_recall_orders_venn_area_Z_association,
-    ) = create_figure_layout_paper_fig_7()
+        ax_recall_orders_venn_area_Y_both_asso_types,
+        ax_recall_orders_venn_area_Z_both_asso_types,
+    ) = create_figure_layout_complete()
+
+    fig, axes = create_figure_layout_Fig_8()
+
+    fig_sup, axes_sup = create_figure_layout_Fig_S7()
+
+    axes_venn_diagram = axes[:, [0, 3]].T.flatten()
+    axes_synapse_distribution = axes[:, [1, 4]].T.flatten()
+    axes_pattern_completion = axes[:, [2, 5]].T.flatten()
+
+    axes_venn_diagram_sup = axes_sup[:, [0]].T.flatten()
+    axes_synapse_distribution_sup = axes_sup[:, [1, 2]].T.flatten()
+    axes_pattern_completion_sup = axes_sup[:, [3, 4]].T.flatten()
 
     net = get_network_for_investigation(seed=0)
     result_dict = setup_result_dict(case_id=0)
-    seed = 5  # 5
+    seed = 5
     how_does_association_change_the_recall(
         net=net,
         seed=seed,
@@ -53,6 +65,8 @@ def paper_figure_7(only_load_results=False):
         axes=axes_recall_with_orders_normed,
         normalize_results=True,
         show_plot=False,
+        figure_axes=axes_pattern_completion,
+        sup_figure_axes=axes_pattern_completion_sup,
     )
 
     show_results_for_association_changes_the_recall(
@@ -66,21 +80,30 @@ def paper_figure_7(only_load_results=False):
             ax_recall_orders_venn_area_Z,
             ax_recall_orders_venn_area_Y_association,
             ax_recall_orders_venn_area_Z_association,
+            ax_recall_orders_venn_area_Y_both_asso_types,
+            ax_recall_orders_venn_area_Z_both_asso_types,
         ],
+        figure_axes=[axes_venn_diagram, axes_synapse_distribution],
+        sup_figure_axes=[axes_venn_diagram_sup, axes_synapse_distribution_sup],
     )
 
     ax_recall_orders_avg.set_title("inputs only into area Y (X and X`)")
 
-    fig.savefig("../../results/figures/paper_fig_7.pdf", dpi=800)
+    fig_full.savefig("../results/figures/Fig_8_full.pdf", dpi=800)
+    fig.savefig("../results/figures/Fig_8.pdf", dpi=800)
+    fig_sup.savefig("../results/figures/Fig_S7.pdf", dpi=800)
 
 
-def create_figure_layout_paper_fig_7():
+def create_figure_layout_complete():
     fig = plt.figure(figsize=(88, 64))
     gs = fig.add_gridspec(9, 16, hspace=1, wspace=1)
 
     axes_recall_with_orders = np.array(
         [
-            [fig.add_subplot(gs[ii * 2 : (ii + 1) * 2, jj * 2 : (jj + 1) * 2]) for jj in range(4)]
+            [
+                fig.add_subplot(gs[ii * 2 : (ii + 1) * 2, jj * 2 : (jj + 1) * 2])
+                for jj in range(4)
+            ]
             for ii in range(2)
         ]
     )
@@ -88,7 +111,9 @@ def create_figure_layout_paper_fig_7():
     axes_recall_with_orders_normed = np.array(
         [
             [
-                fig.add_subplot(gs[ii * 2 : (ii + 1) * 2, 8 + jj * 2 : 8 + (jj + 1) * 2])
+                fig.add_subplot(
+                    gs[ii * 2 : (ii + 1) * 2, 8 + jj * 2 : 8 + (jj + 1) * 2]
+                )
                 for jj in range(4)
             ]
             for ii in range(2)
@@ -100,6 +125,9 @@ def create_figure_layout_paper_fig_7():
 
     ax_recall_orders_venn_area_Y_association = fig.add_subplot(gs[5:7, 4:6])
     ax_recall_orders_venn_area_Z_association = fig.add_subplot(gs[7:9, 4:6])
+
+    ax_recall_orders_venn_area_Y_both_asso_types = fig.add_subplot(gs[5:7, 12:14])
+    ax_recall_orders_venn_area_Z_both_asso_types = fig.add_subplot(gs[7:9, 12:14])
 
     ax_recall_orders_avg = fig.add_subplot(gs[5:7, 6:8])
     ax_dendrite_inputs_Y = fig.add_subplot(gs[5:7, 8:10])
@@ -116,7 +144,43 @@ def create_figure_layout_paper_fig_7():
         ax_recall_orders_venn_area_Z,
         ax_recall_orders_venn_area_Y_association,
         ax_recall_orders_venn_area_Z_association,
+        ax_recall_orders_venn_area_Y_both_asso_types,
+        ax_recall_orders_venn_area_Z_both_asso_types,
     )
+
+
+def create_figure_layout_Fig_8():
+    fig = plt.figure(figsize=(60, 20))
+    gs = fig.add_gridspec(4, 12, hspace=1, wspace=1)
+
+    axes = np.array(
+        [
+            [
+                fig.add_subplot(gs[ii * 2 : (ii + 1) * 2, jj * 2 : (jj + 1) * 2])
+                for jj in range(6)
+            ]
+            for ii in range(2)
+        ]
+    )
+
+    return (fig, axes)
+
+
+def create_figure_layout_Fig_S7():
+    fig = plt.figure(figsize=(60, 20))
+    gs = fig.add_gridspec(4, 10, hspace=1, wspace=1)
+
+    axes = np.array(
+        [
+            [
+                fig.add_subplot(gs[ii * 2 : (ii + 1) * 2, jj * 2 : (jj + 1) * 2])
+                for jj in range(5)
+            ]
+            for ii in range(2)
+        ]
+    )
+
+    return (fig, axes)
 
 
 def get_network_for_investigation(seed=5):
@@ -133,23 +197,24 @@ def get_network_for_investigation(seed=5):
     net = NetworkRecall(
         parameter_file_name="parameters",
         parameters_for_run=parameters_for_run,
-        save_file_name="association_changes",
+        save_file_name="data_Fig_8",
         parameter_dict=parameter_dict,
         only_load_results=False,
-        # new_file_to_save_to="association_changes",
+        figure_name="Fig_8",
     )
 
     return net
 
 
-def get_simulated_network(net, filename_for_stored_network=None, all_assembly_ids_for_areas=None):
+def get_simulated_network(
+    net, filename_for_stored_network=None, all_assembly_ids_for_areas=None
+):
     net.parameters_for_run["all_assembly_ids_for_areas"] = all_assembly_ids_for_areas
     if "restore_from_save_name" in net.parameters_for_run:
         del net.parameters_for_run["restore_from_save_name"]
     if filename_for_stored_network is not None:
         net.parameters_for_run["restore_from_save_name"] = filename_for_stored_network
     save_dict = net.run_imprint(report_style="text", report_period=900 * second)
-    print("#####", save_dict)
     if not save_dict:
         net.show_all_saved_dictionaries()
         return None
@@ -169,15 +234,16 @@ def get_assembly_ids_and_distributions(
     result_dict,
 ):
     if net.save_dict:
-        t_0 = (
-            net.parameters_for_run["runtime_imprint"] / msecond
-            + net.parameters_for_run["runtime_baseline"] / msecond
-        ) * imprint_id
+        current_vals_a = np.copy(
+            net.parameters_for_run["all_assembly_ids_for_areas"]
+        ).tolist()
+        current_vals_b = np.copy(
+            net.parameters_for_run["all_context_ids_for_areas"]
+        ).tolist()
 
-        current_vals_a = np.copy(net.parameters_for_run["all_assembly_ids_for_areas"]).tolist()
-        current_vals_b = np.copy(net.parameters_for_run["all_context_ids_for_areas"]).tolist()
-
-        net.parameters_for_run["all_assembly_ids_for_areas"] = [[] for _ in range(imprint_id + 1)]
+        net.parameters_for_run["all_assembly_ids_for_areas"] = [
+            [] for _ in range(imprint_id + 1)
+        ]
         net.parameters_for_run["all_context_ids_for_areas"] = [
             [(0, 0)] for _ in range(imprint_id + 1)
         ]
@@ -236,8 +302,8 @@ def run_recall_for_loaded_net(
 ):
     all_recall_sizes = result_dict["all_recall_sizes"]
 
-    # (firing_rate/n_active, area_id, recall_sizes)
     all_recall_responses = np.zeros((2, 2, len(all_recall_sizes))) * float("nan")
+    all_recall_responses_bck = np.zeros((2, 2, len(all_recall_sizes))) * float("nan")
     x_values = []
 
     bsl = net.parameters_for_run["runtime_baseline"] / msecond
@@ -251,7 +317,7 @@ def run_recall_for_loaded_net(
         net.parameters_for_run.update(
             {
                 "all_assembly_ids_for_areas_recall": assembly_ids_for_areas,
-                "all_context_ids_for_areas_recall": [[(0, 0)]],  # sets all contexts to 0
+                "all_context_ids_for_areas_recall": [[(0, 0)]],
                 "runtime_baseline_recall": 0.1 * second,
                 "runtime_recall": runtime_recall,
                 "run_recall_after_imprint": run_recall_after_imprint,
@@ -267,7 +333,6 @@ def run_recall_for_loaded_net(
             net.parameters_for_run["assembly_size_recall"] = recall_size
             x_values.append(net.parameters_for_run["assembly_size_recall"])
 
-        # net.show_all_saved_dictionaries()
         net.run_recall(report_style="text")
 
         if not net.save_dict:
@@ -276,21 +341,13 @@ def run_recall_for_loaded_net(
         start_time = end_time_after_imprint + bsl
         end_time = start_time + rtm_recall
 
-        # if recall_size == 20:
-        #     net.show_spike_rasters(
-        #         show_plot=True,
-        #         highlight_neuron_ids=None,
-        #         sort_for_specific_imprint=None,
-        #         show_vertical_lines_at=[start_time, end_time],
-        #     )
-
         for area_id, area in enumerate(net.all_areas):
             active_threshold = result_dict["active_threshold"]
             (
                 avg_firing_rate,
                 n_active_neurons,
-                _,
-                _,
+                avg_firing_rate_bck,
+                n_active_neurons_bck,
             ) = get_activity_metrics_from_assembly_neurons(
                 active_threshold=active_threshold,
                 net=net,
@@ -298,17 +355,21 @@ def run_recall_for_loaded_net(
                 selected_ids=selected_ids[area_id],
                 start_time=start_time,
                 end_time=end_time,
+                select_randomly_for_background=True,
             )
 
             all_recall_responses[0, area_id, active_id] = avg_firing_rate
             all_recall_responses[1, area_id, active_id] = n_active_neurons
+
+            all_recall_responses_bck[0, area_id, active_id] = avg_firing_rate_bck
+            all_recall_responses_bck[1, area_id, active_id] = n_active_neurons_bck
 
     if change_firing_rate:
         result_dict["x_values_firing_rate"] = x_values
     else:
         result_dict["x_values_n_active"] = x_values
 
-    return all_recall_responses
+    return all_recall_responses, all_recall_responses_bck
 
 
 def process_case(
@@ -329,7 +390,9 @@ def process_case(
             all_assembly_ids_for_areas=[im_in],
         )
         net.network.restore(
-            filename=net.get_path_to_stored_networks(file_name=filename_for_stored_network)
+            filename=net.get_path_to_stored_networks(
+                file_name=filename_for_stored_network
+            )
         )
 
         selected_ids = get_assembly_ids_and_distributions(
@@ -348,13 +411,6 @@ def process_case(
         bsl + rtm - rtm_recall + (2 * bsl + rtm) * imprint_id
     )  # imprint_id * (2 * bsl + rtm) - rtm_recall - bsl
     end_time_after_imprint = start_time_after_imprint + rtm_recall
-
-    # net.show_spike_rasters(
-    #     show_plot=True,
-    #     highlight_neuron_ids=None,
-    #     sort_for_specific_imprint=None,
-    #     show_vertical_lines_at=[start_time_after_imprint, end_time_after_imprint],
-    # )
 
     for area_id, area in enumerate(net.all_areas):
         (
@@ -386,7 +442,7 @@ def process_case(
 
     for stim_id, inputs in enumerate(recall_inputs):
         for run_recall_after_imprint in [True, False]:
-            all_recall_responses = run_recall_for_loaded_net(
+            all_recall_responses, all_recall_responses_bck = run_recall_for_loaded_net(
                 net=net,
                 change_firing_rate=change_firing_rate,
                 assembly_ids_for_areas=[inputs],
@@ -411,6 +467,19 @@ def process_case(
 
                     result_dict[key] = all_recall_responses[fr_n_active_id, area_id]
 
+                    key = get_key_for_result_dictionary(
+                        seed=net.parameters_for_run["seed"],
+                        stimulus_id_recall=stim_id,
+                        run_recall_after_imprint=run_recall_after_imprint,
+                        area_id=area_id,
+                        firing_rate_or_n_active_neurons=fr_n_active_id,
+                        order_id=order_id,
+                        result_type="recall",
+                        bck=True,
+                    )
+
+                    result_dict[key] = all_recall_responses_bck[fr_n_active_id, area_id]
+
 
 def get_key_for_result_dictionary(
     seed=None,
@@ -422,10 +491,8 @@ def get_key_for_result_dictionary(
     stimulus_id_recall=None,
     run_recall_after_imprint=None,
     firing_rate_or_n_active_neurons=None,
+    bck=False,
 ):
-    # all result types:
-    # 'recall', 'imprint', 'dendrite_distributions', 'selected_assembly_ids'
-
     if seed is None:
         raise ValueError("You need to provide the seed for the network")
 
@@ -440,7 +507,12 @@ def get_key_for_result_dictionary(
         ]
 
     if result_type == "imprint":
-        all_relevant_parameters = [seed, order_id, area_id, firing_rate_or_n_active_neurons]
+        all_relevant_parameters = [
+            seed,
+            order_id,
+            area_id,
+            firing_rate_or_n_active_neurons,
+        ]
 
     if result_type == "dendrite_distributions":
         all_relevant_parameters = [seed, input_id, area_id, order_id, imprint_id]
@@ -448,13 +520,17 @@ def get_key_for_result_dictionary(
     if result_type == "selected_assembly_ids":
         all_relevant_parameters = [seed, area_id, order_id, imprint_id]
 
-    # first we check if all relevant parameters are provided
     key = result_type
     for par in all_relevant_parameters:
         if par is None:
-            raise ValueError("You should provide information for all relevant paramters")
+            raise ValueError(
+                "You should provide information for all relevant paramters"
+            )
 
         key += f"{par}"
+
+    if bck is True:
+        key += "_bck"
 
     return key
 
@@ -466,10 +542,10 @@ def show_single_results_for_association_changes_the_recall(
     normalize_results=False,
     show_plot=False,
     change_firing_rate=True,
+    figure_axes=None,
+    sup_figure_axes=None,
 ):
     case_id = result_dict["case_id"]
-    # title = f"CASE {case_id + 1} "
-
     prime = "X`"
     if case_id == 1:
         prime = "Y`"
@@ -509,6 +585,7 @@ def show_single_results_for_association_changes_the_recall(
                         else:
                             x_values = result_dict["x_values_n_active"]
                         res = []
+                        res_bck = []
                         for recall_or_imprint in ["recall", "imprint"]:
                             key = get_key_for_result_dictionary(
                                 seed=seed,
@@ -522,15 +599,30 @@ def show_single_results_for_association_changes_the_recall(
 
                             try:
                                 res.append(result_dict[key])
-                                if order_id == 2:
-                                    print("##$", result_dict[key])
                             except KeyError:
-                                print("keyError", order_id, stim_id_recall, run_recall_after_imprint)
                                 res.append([float("nan") for _ in x_values])
 
+                            key = get_key_for_result_dictionary(
+                                seed=seed,
+                                stimulus_id_recall=stim_id_recall,
+                                run_recall_after_imprint=run_recall_after_imprint,
+                                area_id=area_id,
+                                firing_rate_or_n_active_neurons=firing_rate_n_active,
+                                order_id=order_id,
+                                result_type=recall_or_imprint,
+                                bck=True,
+                            )
+
+                            try:
+                                res_bck.append(result_dict[key])
+                            except KeyError:
+                                res_bck.append([float("nan") for _ in x_values])
+
                         y_values = res[0]
+                        y_values_bck = res_bck[0]
                         if normalize_results:
                             y_values = np.array(y_values) / res[1]
+                            y_values_bck = np.array(y_values_bck) / res[1]
 
                         ax = axes[stim_id_recall, area_id + 2 * firing_rate_n_active]
                         ax.plot(
@@ -540,6 +632,86 @@ def show_single_results_for_association_changes_the_recall(
                             label=label,
                             ls=ls,
                         )
+
+                        if label is not None:
+                            label += "_bck"
+                        ax.plot(
+                            x_values,
+                            y_values_bck,
+                            color=order_colors[order_id],
+                            label=label,
+                            ls=ls,
+                            alpha=0.5,
+                        )
+
+                        if (
+                            firing_rate_n_active == 0
+                            and run_recall_after_imprint
+                            and figure_axes is not None
+                            and not order_id == 1
+                        ):
+
+                            label = f"fr>{firing_rate_n_active},order>{order_id},area{area_id},stim{stim_id_recall},rec>{run_recall_after_imprint}"
+
+                            colors = ["#C894C3", "#911842"]
+                            colors_sup = ["#4061AD", "#CB4E9C"]
+                            labels = ["Activate only X", "Activate only X`"]
+
+                            this_label = labels[stim_id_recall]
+
+                            if this_label == "Activate only X":
+                                chosen_index_sup = 0
+                            if this_label == "Activate only X`":
+                                chosen_index_sup = 2
+
+                            if order_id == 2:
+                                chosen_index = 0
+                                extra_label = " case (II)"
+                                sup_color_id = 0
+
+                            if order_id == 0:
+                                chosen_index = 2
+                                extra_label = " case (III)"
+                                sup_color_id = 1
+
+                            figure_axes[chosen_index + area_id].plot(
+                                x_values,
+                                y_values,
+                                color=colors[stim_id_recall],
+                                label=this_label + extra_label,
+                            )
+
+                            sup_figure_axes[chosen_index_sup + area_id].plot(
+                                x_values,
+                                y_values,
+                                color=colors_sup[sup_color_id],
+                                label=this_label + extra_label,
+                            )
+
+                            label = None
+                            if stim_id_recall == 1:
+                                label = "bck"
+                            figure_axes[chosen_index + area_id].plot(
+                                x_values,
+                                y_values_bck,
+                                color="#949494",
+                                label=label,
+                            )
+
+                            sup_figure_axes[chosen_index_sup + area_id].plot(
+                                x_values,
+                                y_values_bck,
+                                color="#949494",
+                                label=label,
+                            )
+
+                            figure_axes[chosen_index + area_id].set_ylim([-0.05, 1.05])
+                            sup_figure_axes[chosen_index_sup + area_id].set_ylim(
+                                [-0.05, 1.05]
+                            )
+
+                            figure_axes[chosen_index + area_id].legend()
+                            sup_figure_axes[chosen_index_sup + area_id].legend()
 
                         if stim_id_recall == 0:
                             new_title = title + " >> Recall in X"
@@ -584,8 +756,6 @@ def how_does_association_change_the_recall(
     only_run_imprint=False,
     result_dict=None,
 ):
-    print(f"CREATE NETWORK {seed, change_firing_rate, only_run_imprint}")
-
     if net is None:
         net = get_network_for_investigation(seed=seed)
     else:
@@ -610,18 +780,14 @@ def how_does_association_change_the_recall(
     return
 
 
-def look_at_dendrite_statistics_within_assembly(net, selected_ids_A, selected_ids_B, order_id):
-    # we now want to look at the statistics of how many highly active
-    # arrived at the dendrites
-
-    # Area A - 1
-
+def look_at_dendrite_statistics_within_assembly(
+    net, selected_ids_A, selected_ids_B, order_id
+):
     subset_ids_for_a1 = []
     subset_ids_for_a2 = []
     subset_ids_for_b2 = []
 
     for assembly_ids in net.parameters_for_run["all_assembly_ids_for_areas"][0]:
-        print(assembly_ids)
         if assembly_ids[0] == 0 and assembly_ids[1] >= 0:
             subset_ids_for_a1 = [ii + (assembly_ids[1] * 20) for ii in range(20)]
         if assembly_ids[0] == 0 and assembly_ids[2] >= 0:
@@ -629,14 +795,13 @@ def look_at_dendrite_statistics_within_assembly(net, selected_ids_A, selected_id
         if assembly_ids[0] == 1 and assembly_ids[2] >= 0:
             subset_ids_for_b2 = [ii + (assembly_ids[2] * 20) for ii in range(20)]
 
-    input_subsets = [[subset_ids_for_a1, subset_ids_for_a2], [selected_ids_A, subset_ids_for_b2]]
+    input_subsets = [
+        [subset_ids_for_a1, subset_ids_for_a2],
+        [selected_ids_A, subset_ids_for_b2],
+    ]
 
     n_of_inputs_that_target_selected_ids = [[[], []], [[], []]]
     targeted_neurons = [selected_ids_A, selected_ids_B]
-
-    print(subset_ids_for_a1)
-    print(subset_ids_for_a2)
-    print(subset_ids_for_b2)
 
     for area_id in range(2):
         area = net.all_areas[area_id]
@@ -649,19 +814,25 @@ def look_at_dendrite_statistics_within_assembly(net, selected_ids_A, selected_id
                         syn_ids_that_target_dendrite = np.where(
                             area.input_synapses[input_id].j[:] == dend_id
                         )[0]
-                        input_neurons_that_target_dendrite = area.input_synapses[input_id].i[
-                            syn_ids_that_target_dendrite
-                        ]
+                        input_neurons_that_target_dendrite = area.input_synapses[
+                            input_id
+                        ].i[syn_ids_that_target_dendrite]
 
-                        n_of_inputs_that_target_selected_ids[area_id][input_id].append(0)
+                        n_of_inputs_that_target_selected_ids[area_id][input_id].append(
+                            0
+                        )
                         for n_id in input_neurons_that_target_dendrite:
                             if n_id in input_subsets[area_id][input_id]:
-                                n_of_inputs_that_target_selected_ids[area_id][input_id][-1] += 1
+                                n_of_inputs_that_target_selected_ids[area_id][input_id][
+                                    -1
+                                ] += 1
 
     return n_of_inputs_that_target_selected_ids
 
 
-def run_how_does_association_change_the_recall_on_server(max_cores=2, get_seeds=False, case_id=0):
+def run_how_does_association_change_the_recall_on_server(
+    max_cores=2, get_seeds=False, case_id=0
+):
     result_dict = setup_result_dict(case_id=case_id)
     result_dict["all_recall_sizes"] = [20]
     all_seeds = [
@@ -691,10 +862,8 @@ def run_how_does_association_change_the_recall_on_server(max_cores=2, get_seeds=
 
     params = []
 
-    # iterate over seed
     change_firing_rate = True
     only_load_results = False
-    # iterate over case_id
     only_run_imprint = True
 
     for seed in all_seeds:
@@ -729,7 +898,6 @@ def run_how_does_association_change_the_recall_on_server(max_cores=2, get_seeds=
                 )
             )
 
-    print(len(params))
     n_cores = np.min([len(params), max_cores])
     with Pool(n_cores) as pool:
         _ = pool.starmap(
@@ -777,7 +945,14 @@ def setup_result_dict(case_id):
     return result_dict
 
 
-def show_results_for_association_changes_the_recall(net=None, case_id=0, axes=None, show_plot=False):
+def show_results_for_association_changes_the_recall(
+    net=None,
+    case_id=0,
+    axes=None,
+    show_plot=False,
+    figure_axes=None,
+    sup_figure_axes=None,
+):
     result_dict = setup_result_dict(case_id=case_id)
     all_seeds = run_how_does_association_change_the_recall_on_server(get_seeds=True)
 
@@ -785,8 +960,6 @@ def show_results_for_association_changes_the_recall(net=None, case_id=0, axes=No
     if case_id == 1:
         prime = "Y`"
 
-    # all_seeds = [5]
-    # all_seeds = all_seeds
     if net is None:
         net = get_network_for_investigation(seed=0)
 
@@ -800,9 +973,9 @@ def show_results_for_association_changes_the_recall(net=None, case_id=0, axes=No
 
     if axes is None:
         fig, axes = plt.subplots(2, 4)
-        (ax1, ax2, ax3, _, ax4, ax5, ax6, ax7) = axes.flatten()
+        ax1, ax2, ax3, _, ax4, ax5, ax6, ax7, ax8, ax9 = axes.flatten()
     else:
-        ax1, ax2, ax3, ax4, ax5, ax6, ax7 = axes
+        ax1, ax2, ax3, ax4, ax5, ax6, ax7, ax8, ax9 = axes
 
     xticklabels = []
     xticks = []
@@ -851,7 +1024,6 @@ def show_results_for_association_changes_the_recall(net=None, case_id=0, axes=No
 
         for ii, recall_ids in enumerate(
             [
-                # [order_id, stim_recall_id]
                 [[0, 0], [1, 1]],  # first (same order as stimulus)
                 [[0, 1], [1, 0]],  # last (different order than stimulus)
                 [[2, 0], [2, 1]],  # same
@@ -868,10 +1040,6 @@ def show_results_for_association_changes_the_recall(net=None, case_id=0, axes=No
                 )
 
                 recall_results[ii].append(x[:, -1:])
-                print("_______________")
-                print(x)
-                print(recall_results)
-
             recall_results[ii] = np.vstack(recall_results[ii])
 
         area_label = "Y"
@@ -884,7 +1052,10 @@ def show_results_for_association_changes_the_recall(net=None, case_id=0, axes=No
             f"recall (same)\narea {area_label} /{result_dict['x_values_firing_rate'][-1]}",
         ]
         xticklabels += new_xtick_labels
-        xticks += [ii + area_id * (len(new_xtick_labels) + 1) for ii in range(len(new_xtick_labels))]
+        xticks += [
+            ii + area_id * (len(new_xtick_labels) + 1)
+            for ii in range(len(new_xtick_labels))
+        ]
         y_values_bars += [np.nanmean(x) for x in recall_results]
         y_values += [x.flatten() for x in recall_results]
 
@@ -892,7 +1063,9 @@ def show_results_for_association_changes_the_recall(net=None, case_id=0, axes=No
     for x, y in zip(xticks, y_values):
         ax1.scatter([x for _ in y], y, color="k")
     ax1.set(
-        xticks=xticks, xticklabels=xticklabels, ylabel="avg firing rate, normalized for last imprint"
+        xticks=xticks,
+        xticklabels=xticklabels,
+        ylabel="avg firing rate, normalized for last imprint",
     )
 
     def get_dend_dist_res_for_seeds(
@@ -901,6 +1074,7 @@ def show_results_for_association_changes_the_recall(net=None, case_id=0, axes=No
         area_id,
         imprint_id,
         result_type="dendrite_distributions",
+        return_stacked_list=True,
     ):
         if result_dict["case_id"] == 0:
             if area_id == 1 and input_id == 1:
@@ -917,13 +1091,24 @@ def show_results_for_association_changes_the_recall(net=None, case_id=0, axes=No
             )
             x = result_dict[key]
             all_res.append(x)
-            print("___oo___")
-            print(x)
+        if return_stacked_list:
+            return np.hstack(all_res).tolist()
+        else:
+            return all_res
 
-        return np.hstack(all_res).tolist()
+    axes_venn_diagram = None
+    axes_synapse_distribution = None
+    if figure_axes is not None:
+        axes_venn_diagram, axes_synapse_distribution = figure_axes
+
+    axes_venn_diagram_sup = None
+    axes_synapse_distribution_sup = None
+    if sup_figure_axes is not None:
+        axes_venn_diagram_sup, axes_synapse_distribution_sup = sup_figure_axes
 
     for area_id, ax in enumerate([ax2, ax3]):
         all_dend_results = [[], [], [], [], []]
+        all_dend_results_per_seed = [[], [], [], [], []]
         all_labels = [
             "first trained inputs",
             "last trained inputs",
@@ -934,7 +1119,6 @@ def show_results_for_association_changes_the_recall(net=None, case_id=0, axes=No
         all_colors = ["#fe9929", "#0570b0", "#6a51a3", "#238443", "#e5446d"]
         for ii, dend_res_ids in enumerate(
             [
-                # [order_id, input_id, imprint_id]
                 [[0, 0, 1], [1, 1, 1]],  # first (same order as stimulus)
                 [[0, 1, 1], [1, 0, 1]],  # last (different order than stimulus)
                 [[2, 0, 0]],  # same (X first)
@@ -943,34 +1127,72 @@ def show_results_for_association_changes_the_recall(net=None, case_id=0, axes=No
             ]
         ):
             for o_id, in_id, im_id in dend_res_ids:
-                all_dend_results[ii] += get_dend_dist_res_for_seeds(
+                dend_dist_res = get_dend_dist_res_for_seeds(
                     order_id=o_id,
                     input_id=in_id,
                     area_id=area_id,
                     imprint_id=im_id,
                 )
-
-        if area_id == 1:  # Area B
-            # Combine first and last trained inputs into "sequential"
+                all_dend_results[ii] += dend_dist_res
+                dend_dist_res = get_dend_dist_res_for_seeds(
+                    order_id=o_id,
+                    input_id=in_id,
+                    area_id=area_id,
+                    imprint_id=im_id,
+                    return_stacked_list=False,
+                )
+                all_dend_results_per_seed[ii] += dend_dist_res
+        if area_id == 1:
             sequential_data = all_dend_results[0] + all_dend_results[1]
             all_dend_results = [sequential_data] + all_dend_results[2:]
+            sequential_data_per_seed = (
+                all_dend_results_per_seed[0] + all_dend_results_per_seed[1]
+            )
+            all_dend_results_per_seed = [
+                sequential_data_per_seed
+            ] + all_dend_results_per_seed[2:]
 
-            # Update labels and colors
             all_labels = ["sequential inputs"] + all_labels[2:]
-            all_colors = ["#7f7f7f"] + all_colors[2:]  # Use gray for sequential
+            all_colors = ["#7f7f7f"] + all_colors[2:]
 
         bins = np.arange(0, 10) - 0.5
 
-        x_values = np.floor(bins)[-1:]
+        area_label = "Y"
+        if area_id == 1:
+            area_label = "Z"
 
-        width = 0.2
-        for ii, (data, label, color) in enumerate(zip(all_dend_results, all_labels, all_colors)):
+        width = 0.06
+
+        for ii, (data, label, color) in enumerate(
+            zip(all_dend_results, all_labels, all_colors)
+        ):
             counts, bin_edges = np.histogram(data, bins=bins, density=True)
-            bin_centers = (
-                bin_edges[:-1] + bin_edges[1:]
-            ) / 2  # Calculate bin centers for correct x-axis placement
+
+            all_counts_for_seeds_density = np.zeros(
+                (2 * len(all_seeds), len(bin_edges) - 1)
+            ) * float("nan")
+            all_counts_for_seeds = np.zeros_like(all_counts_for_seeds_density) * float(
+                "nan"
+            )
+            for ff, values in enumerate(all_dend_results_per_seed[ii]):
+                counts_seed_density, _ = np.histogram(values, bins=bins, density=True)
+                counts_seed, _ = np.histogram(values, bins=bins, density=False)
+
+                all_counts_for_seeds_density[ff, :] = counts_seed_density
+                all_counts_for_seeds[ff, :] = counts_seed
+
+            path = get_path_to_save_file_name(
+                "Fig_8", f"dends_density_{area_label}_{label.replace(' ', '_')}"
+            )
+            np.savetxt(path, all_counts_for_seeds_density)
+            path = get_path_to_save_file_name(
+                "Fig_8", f"dends_non_density_{area_label}_{label.replace(' ', '_')}"
+            )
+            np.savetxt(path, all_counts_for_seeds)
+
+            bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
             ax.bar(
-                bin_centers + (ii - 1.5) * width,
+                bin_centers + (ii - 2.5) * width,
                 counts,
                 width=0.25,
                 label=label,
@@ -978,21 +1200,114 @@ def show_results_for_association_changes_the_recall(net=None, case_id=0, axes=No
                 alpha=0.7,
             )
 
-            # counts, bin_edges = np.histogram(data, bins=bins, density=True)
-            # ax.bar(x_values + (ii - 1.5) * width, counts, width=width, label=label, color=color)
+            if label in [
+                "inputs trained at the same time (X)",
+                "inputs trained at the same time (X`)",
+                "trained alone",
+            ]:
+                if label == "trained alone":
+                    new_label = "Projection"
+                    color = "#82C77F"
 
-            # ax.hist(
-            #     data,
-            #     bins=bins + (ii - 1.5) * width,
-            #     width=width,
-            #     density=True,
-            #     label=label,
-            #     color=color,
-            # )
-        area_label = "Y"
-        if area_id == 1:
-            area_label = "Z"
-        ax.set(xlabel="n connections from inputs", ylabel="density", title=f"Area {area_label}")
+                if label == "inputs trained at the same time (X)":
+                    new_label = "Association from X to Y"
+                    color = "#C894C3"
+
+                    if area_id == 1:
+                        color = "#E52A8A"
+                        new_label = "Projection from Y to Z"
+
+                if label == "inputs trained at the same time (X`)":
+                    new_label = "Association from X` to Y"
+                    color = "#911842"
+
+                    if area_id == 1:
+                        new_label = None
+
+                axes_synapse_distribution[area_id].bar(
+                    bin_centers + (ii - 2.5) * width,
+                    counts,
+                    width=0.25,
+                    label=new_label,
+                    color=color,
+                )
+
+                axes_synapse_distribution[area_id].legend()
+
+                if label not in ["trained alone"]:
+                    if label == "inputs trained at the same time (X)":
+                        axes_id = 0
+                    if label == "inputs trained at the same time (X`)":
+                        axes_id = 2
+
+                    index_value = axes_id
+                    if area_id == 1:
+                        index_value = 1
+
+                    axes_synapse_distribution_sup[index_value].bar(
+                        bin_centers + (ii - 2.5) * width,
+                        counts,
+                        width=0.25,
+                        label="Simultaneous",
+                        color="#4061AD",
+                    )
+                    axes_synapse_distribution_sup[axes_id + area_id].legend()
+
+            if label in [
+                "first trained inputs",
+                "last trained inputs",
+                "trained alone",
+                "sequential inputs",
+            ]:
+                if label == "trained alone":
+                    new_label = "Projection"
+                    color = "#82C77F"
+
+                if label == "first trained inputs":
+                    new_label = "Association from X to Y"
+                    color = "#C894C3"
+
+                if label == "last trained inputs":
+                    new_label = "Association from X` to Y"
+                    color = "#911842"
+
+                if label == "sequential inputs":
+                    color = "#E52A8A"
+                    new_label = "Projection from Y to Z"
+
+                axes_synapse_distribution[2 + area_id].bar(
+                    bin_centers + (ii - 2.5) * width,
+                    counts,
+                    width=0.25,
+                    label=new_label,
+                    color=color,
+                )
+
+                axes_synapse_distribution[2 + area_id].legend()
+
+                if label not in ["trained alone"]:
+                    if label == "first trained inputs":
+                        axes_id = 0
+                    if label == "last trained inputs":
+                        axes_id = 2
+
+                    if label == "sequential inputs":
+                        axes_id = 1
+
+                    axes_synapse_distribution_sup[axes_id].bar(
+                        bin_centers + (ii - 2.5) * width,
+                        counts,
+                        width=0.25,
+                        label="Sequential",
+                        color="#CB4E9C",
+                    )
+                    axes_synapse_distribution_sup[axes_id].legend()
+
+        ax.set(
+            xlabel="n connections from inputs",
+            ylabel="density",
+            title=f"Area {area_label}",
+        )
         ax.legend()
 
     def get_assembly_neuron_ids_for_seeds(
@@ -1002,7 +1317,6 @@ def show_results_for_association_changes_the_recall(net=None, case_id=0, axes=No
         imprint_id,
         result_type="selected_assembly_ids",
     ):
-        all_res = []
         key = get_key_for_result_dictionary(
             seed=seed,
             order_id=order_id,
@@ -1013,8 +1327,6 @@ def show_results_for_association_changes_the_recall(net=None, case_id=0, axes=No
 
         return result_dict[key]
 
-    # now we create the average venn diagramm
-    # Function to calculate intersections
     def calculate_intersections(sets):
         set1, set2, set3 = sets
         set1 = np.array(set1)
@@ -1022,7 +1334,6 @@ def show_results_for_association_changes_the_recall(net=None, case_id=0, axes=No
         set3 = np.array(set3)
 
         if np.all(np.isnan(set1)) or np.all(np.isnan(set2)) or np.all(np.isnan(set3)):
-            print("DID NOT USE A SET OF SETS")
             return [float("nan")] * 7
 
         set1 = set(set1[~np.isnan(set1)].astype(int))
@@ -1083,28 +1394,71 @@ def show_results_for_association_changes_the_recall(net=None, case_id=0, axes=No
                 for seed in all_seeds
             ]
         )
-        print(intersections)
+        area_label = "Y"
+        if area_id == 1:
+            area_label = "Z"
+
+        path = get_path_to_save_file_name(
+            "Fig_8", f"Venn_sequential_association_{area_label}"
+        )
+        np.savetxt(path, intersections)
+
         # Calculate average intersection sizes
         average_intersections = np.round(np.nanmean(intersections, axis=0), 2)
 
         # Plot the average Venn diagram on the existing axis
         venn3(
             subsets={
-                "100": average_intersections[4],
-                "010": average_intersections[5],
+                "111": average_intersections[0],
                 "110": average_intersections[1],
-                "001": average_intersections[6],
                 "101": average_intersections[2],
                 "011": average_intersections[3],
-                "111": average_intersections[0],
+                "100": average_intersections[4],
+                "010": average_intersections[5],
+                "001": average_intersections[6],
             },
             set_labels=labels,
             ax=venn_ax,
         )
-        area_label = "Y"
-        if area_id == 1:
-            area_label = "Z"
+
         venn_ax.set_title(f"Area: {area_label}")
+
+        subsets_for_venn = {
+            "111": average_intersections[0],
+            "110": average_intersections[1],
+            "101": average_intersections[2],
+            "011": average_intersections[3],
+            "100": average_intersections[4],
+            "010": average_intersections[5],
+            "001": average_intersections[6],
+        }
+        venn_diagram = venn3(
+            subsets=subsets_for_venn,
+            set_labels=labels,
+            ax=axes_venn_diagram[2 + area_id],
+        )
+
+        purple_color = "#C894C3" if area_id == 0 else "#E52A8A"
+        circle_colors = ["#82C77F", "#006938", purple_color]
+        venn_circles = venn3_circles(
+            subsets=subsets_for_venn,
+            ax=axes_venn_diagram[2 + area_id],
+            linewidth=2,
+        )
+        for circle, color in zip(venn_circles, circle_colors):
+            circle.set_edgecolor(color)
+
+        for patch_id, value in zip(
+            ("111", "110", "101", "011", "100", "010", "001"), average_intersections
+        ):
+            patch = venn_diagram.get_patch_by_id(patch_id)
+            if patch is not None:
+                patch.set_facecolor("none")
+                patch.set_alpha(1)
+
+            label = venn_diagram.get_label_by_id(patch_id)
+            if label is not None:
+                label.set_text(f"{round(value, 2)}")
 
     # Second scenario Venn
     labels = ["X Alone", f"{prime} alone", "Association"]
@@ -1122,7 +1476,7 @@ def show_results_for_association_changes_the_recall(net=None, case_id=0, axes=No
                         get_assembly_neuron_ids_for_seeds(
                             seed, order_id=1, area_id=area_id, imprint_id=0
                         ),
-                        # First X then Y
+                        # both at the same time
                         get_assembly_neuron_ids_for_seeds(
                             seed, order_id=2, area_id=area_id, imprint_id=0
                         ),
@@ -1131,7 +1485,15 @@ def show_results_for_association_changes_the_recall(net=None, case_id=0, axes=No
                 for seed in all_seeds
             ]
         )
-        print(intersections)
+
+        area_label = "Y"
+        if area_id == 1:
+            area_label = "Z"
+
+        path = get_path_to_save_file_name(
+            "Fig_8", f"Venn_simultaneous_association_{area_label}"
+        )
+        np.savetxt(path, intersections)
         # Calculate average intersection sizes
         average_intersections = np.round(np.nanmean(intersections, axis=0), 2)
 
@@ -1149,14 +1511,132 @@ def show_results_for_association_changes_the_recall(net=None, case_id=0, axes=No
             set_labels=labels,
             ax=venn_ax,
         )
+
+        venn_ax.set_title(f"Area: {area_label}")
+
+        subsets_for_venn = {
+            "111": average_intersections[0],
+            "110": average_intersections[1],
+            "101": average_intersections[2],
+            "011": average_intersections[3],
+            "100": average_intersections[4],
+            "010": average_intersections[5],
+            "001": average_intersections[6],
+        }
+        venn_diagram = venn3(
+            subsets=subsets_for_venn,
+            set_labels=labels,
+            ax=axes_venn_diagram[area_id],
+        )
+
+        purple_color = "#C894C3" if area_id == 0 else "#E52A8A"
+        circle_colors = ["#82C77F", "#006938", purple_color]
+        venn_circles = venn3_circles(
+            subsets=subsets_for_venn,
+            ax=axes_venn_diagram[area_id],
+            linewidth=2,
+        )
+        for circle, color in zip(venn_circles, circle_colors):
+            circle.set_edgecolor(color)
+
+        for patch_id, value in zip(
+            ("111", "110", "101", "011", "100", "010", "001"), average_intersections
+        ):
+            patch = venn_diagram.get_patch_by_id(patch_id)
+            if patch is not None:
+                patch.set_facecolor("none")
+                patch.set_alpha(1)
+
+            label = venn_diagram.get_label_by_id(patch_id)
+            if label is not None:
+                label.set_text(f"{round(value, 2)}")
+
+    # Third scenario Venn, compare both associations
+    labels = ["X Alone", f"First X then {prime}", "Association"]
+    for venn_ax, area_id in zip([ax8, ax9], range(2)):
+        # Calculate intersections for each set
+        intersections = np.array(
+            [
+                calculate_intersections(
+                    # X alone
+                    [
+                        get_assembly_neuron_ids_for_seeds(
+                            seed, order_id=0, area_id=area_id, imprint_id=0
+                        ),
+                        #  First X then Y
+                        get_assembly_neuron_ids_for_seeds(
+                            seed, order_id=0, area_id=area_id, imprint_id=1
+                        ),
+                        # Both at the same time
+                        get_assembly_neuron_ids_for_seeds(
+                            seed, order_id=2, area_id=area_id, imprint_id=0
+                        ),
+                    ]
+                )
+                for seed in all_seeds
+            ]
+        )
         area_label = "Y"
         if area_id == 1:
             area_label = "Z"
+
+        path = get_path_to_save_file_name("Fig_8", f"Venn_simul_vs_sequ_{area_label}")
+        np.savetxt(path, intersections)
+        # Calculate average intersection sizes
+        average_intersections = np.round(np.nanmean(intersections, axis=0), 2)
+
+        # Plot the average Venn diagram on the existing axis
+        venn3(
+            subsets={
+                "100": average_intersections[4],
+                "010": average_intersections[5],
+                "110": average_intersections[1],
+                "001": average_intersections[6],
+                "101": average_intersections[2],
+                "011": average_intersections[3],
+                "111": average_intersections[0],
+            },
+            set_labels=labels,
+            ax=venn_ax,
+        )
         venn_ax.set_title(f"Area: {area_label}")
+
+        # Sup figure: only "First X then {prime}" and "Association", marginalizing out "X Alone"
+        subsets_for_venn2 = {
+            "10": average_intersections[1] + average_intersections[5],
+            "01": average_intersections[2] + average_intersections[6],
+            "11": average_intersections[0] + average_intersections[3],
+        }
+        venn_diagram_sup = venn2(
+            subsets=subsets_for_venn2,
+            set_labels=labels[1:],
+            ax=axes_venn_diagram_sup[area_id],
+        )
+
+        circle_colors_sup = ["#4061AD", "#CB4E9C"]
+        venn_circles_sup = venn2_circles(
+            subsets=subsets_for_venn2,
+            ax=axes_venn_diagram_sup[area_id],
+            linewidth=2,
+        )
+        for circle, color in zip(venn_circles_sup, circle_colors_sup):
+            circle.set_edgecolor(color)
+
+        for patch_id, value in subsets_for_venn2.items():
+            patch = venn_diagram_sup.get_patch_by_id(patch_id)
+            if patch is not None:
+                patch.set_facecolor("none")
+                patch.set_alpha(1)
+
+            label = venn_diagram_sup.get_label_by_id(patch_id)
+            if label is not None:
+                label.set_text(f"{round(value, 2)}")
+
+        axes_venn_diagram_sup[area_id].set_title(f"Area: {area_label}")
 
     if show_plot:
         plt.show()
 
 
 if __name__ == "__main__":
-    paper_figure_7(only_load_results=True)
+    Fig_8(only_load_results=True)

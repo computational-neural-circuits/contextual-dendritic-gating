@@ -1,3 +1,5 @@
+import os
+
 import brian2 as br
 from brian2.units import *
 import numpy as np
@@ -7,10 +9,10 @@ import community as community_louvain
 
 from src.handle_parameters_and_results import HandleParametersAndResults
 from src.area import Area
-from src.utils import get_firing_rate_for_single_neuron, get_assembly_neuron_ids_by_weight_and_rate
-
-
-import scipy
+from src.utils import (
+    get_firing_rate_for_single_neuron,
+    get_assembly_neuron_ids_by_weight_and_rate,
+)
 
 
 class NetworMultipleContextsOverTimeWithAssociation(HandleParametersAndResults):
@@ -68,7 +70,8 @@ class NetworMultipleContextsOverTimeWithAssociation(HandleParametersAndResults):
         self.potenitially_potenitated_dendrites = {}
         all_ids = []
         for context_id, assembly_ids in zip(
-            self.parameters_for_run["all_context_ids"], self.parameters_for_run["all_assembly_ids"]
+            self.parameters_for_run["all_context_ids"],
+            self.parameters_for_run["all_assembly_ids"],
         ):
             assembly_id_0 = assembly_ids[0]
             assembly_id_1 = assembly_ids[1]
@@ -111,7 +114,11 @@ class NetworMultipleContextsOverTimeWithAssociation(HandleParametersAndResults):
                 name = f"context_{context_id}_assembly_{assembly_id_0}_{assembly_id_1}"
                 self.potenitially_potenitated_dendrites[name] = []
                 for n_syn in range(5, 12):
-                    X = list(np.where((area.counts_gated[0] + area.counts_gated[1]) == n_syn)[0])
+                    X = list(
+                        np.where(
+                            (area.counts_gated[0] + area.counts_gated[1]) == n_syn
+                        )[0]
+                    )
                     self.potenitially_potenitated_dendrites[name] += X
                     all_ids += X
 
@@ -120,10 +127,9 @@ class NetworMultipleContextsOverTimeWithAssociation(HandleParametersAndResults):
             if pot_pot not in self.rec_list:
                 self.rec_list.append(pot_pot)
 
-        monitor_list = np.array([np.where((area.synapses_E.j)[:] == kk)[0] for kk in self.rec_list])
-
-        print("This is what we monitor")
-        print(np.array(monitor_list).shape)
+        monitor_list = np.array(
+            [np.where((area.synapses_E.j)[:] == kk)[0] for kk in self.rec_list]
+        )
 
         self.Msyns_w = br.StateMonitor(
             area.synapses_E,
@@ -146,9 +152,9 @@ class NetworMultipleContextsOverTimeWithAssociation(HandleParametersAndResults):
         )
         self.network.add(self.Mff_w)
 
-        print("Done with setup")
+        print("Network monitors configured")
 
-    def create_save_dict(self):
+    def create_save_dict(self, save_recall=False):
         area = self.area
         weights_recurrent = np.zeros(shape=(area.n_somas, area.n_dends))
         weights_recurrent[area.srcs, area.tgts] = area.synapses_E.w
@@ -156,12 +162,12 @@ class NetworMultipleContextsOverTimeWithAssociation(HandleParametersAndResults):
         weights_ff_1 = np.zeros(shape=(area.n_somas, area.n_dends))
         weights_ff_2 = np.zeros(shape=(area.n_somas, area.n_dends))
 
-        weights_ff_1[area.input_synapses[0].i[:], area.input_synapses[0].j[:]] = area.input_synapses[
-            0
-        ].w
-        weights_ff_2[area.input_synapses[1].i[:], area.input_synapses[1].j[:]] = area.input_synapses[
-            1
-        ].w
+        weights_ff_1[area.input_synapses[0].i[:], area.input_synapses[0].j[:]] = (
+            area.input_synapses[0].w
+        )
+        weights_ff_2[area.input_synapses[1].i[:], area.input_synapses[1].j[:]] = (
+            area.input_synapses[1].w
+        )
 
         self.save_dict = {
             f"spikes_somas_t": self.spM_somas.t / ms,
@@ -172,7 +178,7 @@ class NetworMultipleContextsOverTimeWithAssociation(HandleParametersAndResults):
             f"spikes_inputs_i_2": self.spM_inputs[1].i,
         }
 
-        if not self.monitor_everything:
+        if not self.monitor_everything or save_recall:
             return
 
         self.save_dict["weights"] = weights_recurrent
@@ -190,7 +196,14 @@ class NetworMultipleContextsOverTimeWithAssociation(HandleParametersAndResults):
         self.save_dict["weights_ff_1"] = weights_ff_1
         self.save_dict["weights_ff_2"] = weights_ff_2
 
-    def run(self, report_period=10 * second, report_style=None):
+    def run(self, report_period=10 * second, report_style=None, restore_beginning=True):
+
+        filename_for_baseline_network = f"stored_imprint_{self.get_unique_paramter_and_equation_key(ignore_all_keys_with_keywords=['recall', 'all_assembly_ids_for_areas','runtime_baseline','all_context_ids_for_areas','runtime_imprint','save_network_after_each_imprint'])}"
+        filename_for_stored_network = f"stored_imprint_{self.get_unique_paramter_and_equation_key(ignore_all_keys_with_keywords=['recall'])}"
+        path_to_baseline_network = self.get_path_to_stored_networks(
+            file_name=filename_for_baseline_network
+        )
+
         runtime_baseline = self.parameters_for_run["runtime_baseline"]
         runtime_imprint = self.parameters_for_run["runtime_imprint"]
         all_context_ids = self.parameters_for_run["all_context_ids"]
@@ -206,18 +219,69 @@ class NetworMultipleContextsOverTimeWithAssociation(HandleParametersAndResults):
         if "presynaptic_sources_2" in self.parameters_for_run:
             presynaptic_sources[1] = self.parameters_for_run["presynaptic_sources_2"]
 
-        if self.check_for_results():
-            return self.save_dict
+        save_network_after_each_imprint = False
+        if "save_network_after_each_imprint" in self.parameters_for_run:
+            save_network_after_each_imprint = self.parameters_for_run[
+                "save_network_after_each_imprint"
+            ]
+
+        if self.check_for_results(ignore_all_keys_with_keywords=["recall"]):
+            if not save_network_after_each_imprint:
+                return self.save_dict
+
+            if (
+                len(self.save_dict["all_imprint_ids"]) == len(all_context_ids)
+                or self.only_load_results
+            ):
+                return self.save_dict
 
         elif self.only_load_results:
             return None
+
+        if not os.path.isfile(path_to_baseline_network):
+            self.network.store(filename=path_to_baseline_network)
+        else:
+            if restore_beginning:
+                print("RESTORED NETWORK FOR IMPRINT")
+                self.network.restore(filename=path_to_baseline_network)
 
         self.area.start_context(0)
         self.area.input_units_1[:].rates = self.parameters["ff_bck"]
         self.area.input_units_2[:].rates = self.parameters["ff_bck"]
 
-        self.network.run(runtime_baseline, report=report_style, report_period=report_period)
-        for context_id, assembly_ids in zip(all_context_ids, all_assembly_ids):
+        all_imprint_ids = []
+        for counter_ii, (context_id, assembly_ids) in enumerate(
+            zip(all_context_ids, all_assembly_ids)
+        ):
+            all_imprint_ids.append(counter_ii)
+
+            if save_network_after_each_imprint and self.save_dict:
+                # first we test whether this instances was already run
+
+                if counter_ii in self.save_dict["all_imprint_ids"]:
+                    if counter_ii + 1 in self.save_dict["all_imprint_ids"]:
+                        continue
+                    else:
+                        filename_for_stored_network = self.save_dict[
+                            "filename_for_stored_network"
+                        ]
+                        if not type(filename_for_stored_network) is str:
+                            filename_for_stored_network = (
+                                filename_for_stored_network.decode("utf-8")
+                            )
+
+                        self.network.restore(
+                            filename=self.get_path_to_stored_networks(
+                                file_name=filename_for_stored_network + f"_{counter_ii}"
+                            )
+                        )
+                        continue
+
+            if counter_ii == 0:
+                self.network.run(
+                    runtime_baseline, report=report_style, report_period=report_period
+                )
+
             self.area.stop_context()
             self.area.start_context(context_id)
 
@@ -252,39 +316,191 @@ class NetworMultipleContextsOverTimeWithAssociation(HandleParametersAndResults):
                     * self.parameters["assembly_size"]
                 ].rates = self.parameters["assembly_firing_rate"]
 
-            self.network.run(runtime_imprint, report=report_style, report_period=report_period)
+            self.network.run(
+                runtime_imprint, report=report_style, report_period=report_period
+            )
 
             self.area.input_units_1[:].rates = self.parameters["ff_bck"]
             self.area.input_units_2[:].rates = self.parameters["ff_bck"]
 
-            self.network.run(runtime_baseline, report=report_style, report_period=report_period)
+            self.network.run(
+                runtime_baseline, report=report_style, report_period=report_period
+            )
 
-            self.create_save_dict()
+            if save_network_after_each_imprint or ii == (len(all_context_ids) - 1):
+                self.create_save_dict()
+                self.save_dict["filename_for_stored_network"] = (
+                    filename_for_stored_network
+                )
+                self.save_dict["filename_for_baseline_network"] = (
+                    filename_for_baseline_network
+                )
+                self.save_dict["all_imprint_ids"] = [mm for mm in all_imprint_ids]
+                final_save_name = filename_for_stored_network + f"_{counter_ii}"
+                self.network.store(
+                    filename=self.get_path_to_stored_networks(file_name=final_save_name)
+                )
+                self.save_results(ignore_all_keys_with_keywords=["recall"])
+
+                if self.monitor_everything:
+                    self.generate_results()
+
+    def run_recall(self, report_period=10 * second, report_style="text"):
+        _ = self.parameters_for_run["runtime_baseline_recall"]
+        runtime_recall = self.parameters_for_run["runtime_recall"]
+        all_context_ids = self.parameters_for_run["all_context_ids_for_recall"]
+        all_assembly_ids = self.parameters_for_run["all_assembly_ids_for_recall"]
+
+        run_after_imprint = self.parameters_for_run["run_recall_after_imprint"]
+        recall_after_imprint_id = self.parameters_for_run["recall_after_imprint_id"]
+
+        presynaptic_sources_single = None
+        if "presynaptic_sources" in self.parameters_for_run:
+            presynaptic_sources_single = self.parameters_for_run["presynaptic_sources"]
+
+        presynaptic_sources = [None, None]
+        if "presynaptic_sources_1" in self.parameters_for_run:
+            presynaptic_sources[0] = self.parameters_for_run["presynaptic_sources_1"]
+        if "presynaptic_sources_2" in self.parameters_for_run:
+            presynaptic_sources[1] = self.parameters_for_run["presynaptic_sources_2"]
+
+        try:
+            assembly_size_recall = self.parameters_for_run["assembly_size_recall"]
+        except KeyError:
+            assembly_size_recall = self.parameters["assembly_size"]
+
+        try:
+            assembly_firing_rate_recall = self.parameters_for_run[
+                "assembly_firing_rate_recall"
+            ]
+        except KeyError:
+            assembly_firing_rate_recall = self.parameters["assembly_firing_rate"]
+
+        try:
+            _ = self.parameters_for_run["assembly_neuron_selection_seed_recall"]
+        except KeyError:
+            _ = 0
+
+        if self.check_for_results():
+            return self.save_dict
+
+        elif self.only_load_results:
+            return None
+
+        self.only_load_results = True
+        self.run(report_period=report_period, report_style=report_style)
+        self.only_load_results = False
+
+        filename_for_stored_network = self.save_dict["filename_for_stored_network"]
+        if not type(filename_for_stored_network) is str:
+            filename_for_stored_network = filename_for_stored_network.decode("utf-8")
+        if run_after_imprint:
+            filename_for_stored_network += f"_{recall_after_imprint_id}"
+        else:
+            filename_for_stored_network = self.save_dict[
+                "filename_for_baseline_network"
+            ]
+
+        if not type(filename_for_stored_network) is str:
+            filename_for_stored_network = filename_for_stored_network.decode("utf-8")
+
+        self.network.restore(
+            filename=self.get_path_to_stored_networks(
+                file_name=filename_for_stored_network
+            )
+        )
+
+        for counter_ii, (context_id, assembly_ids) in enumerate(
+            zip(all_context_ids, all_assembly_ids)
+        ):
+
+            self.area.start_context(context_id)
+            self.area.input_units_1[:].rates = self.parameters["ff_bck"]
+            self.area.input_units_2[:].rates = self.parameters["ff_bck"]
+
+            all_ids = np.arange(0, self.parameters["n_somas"], dtype=int)
+
+            for kk in range(2):
+                selected_assembly_neuron_ids = None
+                original_assembly_neuron_ids = None
+                this_assembly_size = assembly_size_recall
+                selected_assembly_neuron_ids = []
+
+                if assembly_ids[kk] >= 0 and assembly_ids[kk] != 1992:
+                    original_assembly_neuron_ids = all_ids[
+                        assembly_ids[kk]
+                        * self.parameters["assembly_size"] : (assembly_ids[kk] + 1)
+                        * self.parameters["assembly_size"]
+                    ]
+
+                if assembly_ids[kk] == 1992:
+                    original_assembly_neuron_ids = presynaptic_sources_single
+                    if assembly_ids[0] == 1992 and assembly_ids[1] == 1992:
+                        original_assembly_neuron_ids = presynaptic_sources[kk]
+
+                if assembly_ids[kk] >= 0:
+                    if assembly_size_recall == 0:
+                        # then we take n = assembly_size neurons that are not part of the origininal
+                        original_assembly_neuron_ids = [
+                            ii
+                            for ii in all_ids
+                            if ii not in original_assembly_neuron_ids
+                        ]
+                        this_assembly_size = 20
+
+                    selected_assembly_neuron_ids = np.sort(
+                        np.random.choice(
+                            original_assembly_neuron_ids,
+                            this_assembly_size,
+                            replace=False,
+                        )
+                    )
+
+                for neuron_id in selected_assembly_neuron_ids:
+                    if kk == 0:
+                        self.area.input_units_1[neuron_id : neuron_id + 1].rates = (
+                            assembly_firing_rate_recall
+                        )
+                    if kk == 1:
+                        self.area.input_units_2[neuron_id : neuron_id + 1].rates = (
+                            assembly_firing_rate_recall
+                        )
+
+            self.network.run(
+                runtime_recall, report=report_style, report_period=report_period
+            )
+            self.create_save_dict(save_recall=True)
             self.save_results()
-            if self.monitor_everything:
-                self.generate_results()
 
-    def show_weight_matrix(self, show_plot=False, matlab_export_name=None):
+    def show_weight_matrix(
+        self,
+        show_plot=False,
+        matlab_export_name=None,
+        axes=None,
+        axes_for_dendrite_matrix=None,
+    ):
         weights_loaded = self.save_dict["weights"]
-        print(self.save_dict["weights"].shape)
 
         matlab_save_dict = {"all_weights": weights_loaded}
 
         for ii, context_id in enumerate(
             np.sort(np.unique(self.parameters_for_run["all_context_ids"]))
         ):
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
+            if axes is None:
+                fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
+            else:
+                ax1, ax2 = axes[ii]
 
             weights = weights_loaded[:, context_id::6]
 
             matlab_save_dict[f"weights_of_context_{context_id}"] = weights
 
-            print("new shape, ", weights.shape)
-
             G = nx.from_numpy_array(weights, create_using=nx.DiGraph)
 
             # Community detection (convert to undirected for the community detection if necessary)
-            partition = community_louvain.best_partition(G.to_undirected(), weight="weight")
+            partition = community_louvain.best_partition(
+                G.to_undirected(), weight="weight"
+            )
 
             # Create a mapping of node index to community
             node_community_map = {
@@ -296,20 +512,22 @@ class NetworMultipleContextsOverTimeWithAssociation(HandleParametersAndResults):
 
             # Reorder the matrix accordingly
             W_reordered = weights[np.ix_(sorted_nodes, sorted_nodes)]
-            im = ax1.imshow(W_reordered.T, cmap="Greys")
-            plt.colorbar(im)
+            if ax1 is not None:
+                im = ax1.imshow(W_reordered.T, cmap="Greys", origin="lower")
+                plt.colorbar(im)
 
             sorted_neuron_ids, _ = self.sort_neurons_by_firing_rate(reverse_order=False)
 
             weights = weights[np.ix_(sorted_neuron_ids[ii], sorted_neuron_ids[ii])]
 
-            im = ax2.imshow(weights.T, cmap="Greys")
-            plt.colorbar(im)
+            if ax2 is not None:
+                im = ax2.imshow(weights.T, cmap="Greys", origin="lower")
+                plt.colorbar(im)
 
         sorted_neuron_ids, _ = self.sort_neurons_by_firing_rate(reverse_order=False)
 
         matlab_save_dict = {"all_weights_not_sorted": weights_loaded.T}
-        for context_id in [-1, 0, 1, 2]:
+        for ff, context_id in enumerate([-1, 0, 1, 2]):
             sorted_dendrite_ids = []
             for snid in sorted_neuron_ids[0]:
                 for ii in range(self.parameters["n_dend_each"]):
@@ -317,21 +535,30 @@ class NetworMultipleContextsOverTimeWithAssociation(HandleParametersAndResults):
                         if context_id != -1:
                             continue
 
-                    sorted_dendrite_ids.append(snid * self.parameters["n_dend_each"] + ii)
+                    sorted_dendrite_ids.append(
+                        snid * self.parameters["n_dend_each"] + ii
+                    )
 
-            # weights_reduced = weights_loaded[::, ::]
-            # if context_id != -1:
-            #     weights_reduced = weights_loaded[::, context_id :: self.parameters["n_dend_each"]]
-            weights_sorted = weights_loaded[np.ix_(sorted_neuron_ids[0], sorted_dendrite_ids[:])]
+            weights_sorted = weights_loaded[
+                np.ix_(sorted_neuron_ids[0], sorted_dendrite_ids[:])
+            ]
 
-            print("asd:, ", context_id, weights_sorted.shape)
+            if axes_for_dendrite_matrix is not None:
+                if axes_for_dendrite_matrix[ff] is not None:
+                    im = axes_for_dendrite_matrix[ff].imshow(
+                        weights_sorted.T, cmap="Greys", origin="lower"
+                    )
+                    plt.colorbar(im)
+
             save_name = "all_weights_sorted_by_context_0"
             if context_id != -1:
-                save_name = f"weights_of_context_{context_id}_sorted_by_context_{context_id}"
+                save_name = (
+                    f"weights_of_context_{context_id}_sorted_by_context_{context_id}"
+                )
 
             matlab_save_dict[save_name] = weights_sorted.T
         if matlab_export_name is not None:
-            scipy.io.savemat(f"{matlab_export_name}.mat", mdict=matlab_save_dict)
+            # scipy.io.savemat(f"{matlab_export_name}.mat", mdict=matlab_save_dict)
             for key, val in matlab_save_dict.items():
                 np.savetxt(f"{matlab_export_name}_{key}.txt", val)
         if show_plot:
@@ -356,7 +583,9 @@ class NetworMultipleContextsOverTimeWithAssociation(HandleParametersAndResults):
         bsl = self.parameters_for_run["runtime_baseline"] / msecond
         rtm = self.parameters_for_run["runtime_imprint"] / msecond
 
-        for ii, (context_id, assembly_ids) in enumerate(zip(all_context_ids, all_assembly_ids)):
+        for ii, (context_id, assembly_ids) in enumerate(
+            zip(all_context_ids, all_assembly_ids)
+        ):
             contex_id_index = unique_context_ids.index(context_id)
 
             start = bsl + (rtm + bsl) * ii
@@ -365,9 +594,17 @@ class NetworMultipleContextsOverTimeWithAssociation(HandleParametersAndResults):
             all_firing_rates_somas = []
             for neuron_index in range(self.parameters["n_somas"]):
                 spike_times_for_neuron = somas_time[somas_i == neuron_index]
-                firing_rate = get_firing_rate_for_single_neuron(
-                    start=start, end=end, spike_times_for_neuron=spike_times_for_neuron
-                )
+                try:
+                    firing_rate = get_firing_rate_for_single_neuron(
+                        start=start,
+                        end=end,
+                        spike_times_for_neuron=spike_times_for_neuron,
+                    )
+                except ValueError as e:
+                    firing_rate = 1.0
+                    print(e)
+                    print("Setting random firing rate 1.0")
+
                 all_firing_rates_somas.append(firing_rate)
             all_firing_rates[contex_id_index][
                 f"{assembly_ids[0]}_{assembly_ids[1]}"
@@ -389,22 +626,17 @@ class NetworMultipleContextsOverTimeWithAssociation(HandleParametersAndResults):
                     area=self.area,
                 )
 
-                print("#############_____________________________________________")
-                print("context_id", context_id)
-                print("assembly_id", assembly_id)
-                print("ids_of_assembly", ids_of_assembly)
-                print("_____________________________________________")
-
-                new_assembly_ids = [si for si in ids_of_assembly if si not in sorted_neuron_ids[ii]]
+                new_assembly_ids = [
+                    si for si in ids_of_assembly if si not in sorted_neuron_ids[ii]
+                ]
                 selected_ids[ii][assembly_id] = ids_of_assembly
                 sorted_neuron_ids[ii] += new_assembly_ids
 
             sorted_neuron_ids[ii] += [
-                ni for ni in range(self.parameters["n_somas"]) if ni not in sorted_neuron_ids[ii]
+                ni
+                for ni in range(self.parameters["n_somas"])
+                if ni not in sorted_neuron_ids[ii]
             ]
-
-        print("Final selected_ids")
-        print(selected_ids)
 
         if not sort_for_specific_imprint:
             sorted_neuron_ids = np.array(sorted_neuron_ids)
@@ -422,12 +654,14 @@ class NetworMultipleContextsOverTimeWithAssociation(HandleParametersAndResults):
         all_assembly_ids = self.parameters_for_run["all_assembly_ids"]
 
         colors = [
-            ["#08306b", "#08519c", "#4292c6", "#9ecae1", "#deebf7"],
-            ["#00441b", "#006d2c", "#41ab5d", "#a1d99b", "#e5f5e0"],
-            ["#7f2704", "#d94801", "#fd8d3c", "#fdd0a2", "#fee6ce"],
+            ["#82C780", "#046937", "#4292c6", "#9ecae1", "#deebf7"],
+            ["#BDAED5", "#67338E", "#41ab5d", "#a1d99b", "#e5f5e0"],
+            ["#FCC085", "#B37129", "#fd8d3c", "#fdd0a2", "#fee6ce"],
         ]
 
-        unique_context_ids = list(np.sort(np.unique(self.parameters_for_run["all_context_ids"])))
+        unique_context_ids = list(
+            np.sort(np.unique(self.parameters_for_run["all_context_ids"]))
+        )
 
         if axes is None:
             n_axes_needed = len(unique_context_ids) + 2  # +2 for the inputs
@@ -449,7 +683,9 @@ class NetworMultipleContextsOverTimeWithAssociation(HandleParametersAndResults):
         rtm = self.parameters_for_run["runtime_imprint"] / msecond
 
         n_assembly = [-1 for ii in unique_context_ids]
-        for tt, (context_id, assembly_id) in enumerate(zip(all_context_ids, all_assembly_ids)):
+        for tt, (context_id, assembly_id) in enumerate(
+            zip(all_context_ids, all_assembly_ids)
+        ):
             start = bsl * int(tt > 0) + (rtm + bsl) * tt
             end = start + rtm + bsl + bsl * int(tt < 1)
 
@@ -466,7 +702,9 @@ class NetworMultipleContextsOverTimeWithAssociation(HandleParametersAndResults):
                     spikes_are_before = spike_times_for_neuron < end
 
                     ax.vlines(
-                        spike_times_for_neuron[np.logical_and(spikes_are_before, spikes_are_after)],
+                        spike_times_for_neuron[
+                            np.logical_and(spikes_are_before, spikes_are_after)
+                        ],
                         ymin=neuron_index - 0.5,
                         ymax=neuron_index + 0.5,
                         colors=colors[unique_context_ids.index(context_id)][
@@ -474,14 +712,15 @@ class NetworMultipleContextsOverTimeWithAssociation(HandleParametersAndResults):
                         ],
                     )
 
-        print(somas_i.shape, somas_time.shape)
         for jj, context_id in enumerate(
             np.sort(np.unique(self.parameters_for_run["all_context_ids"]))
         ):
             for ii, neuron_index in enumerate(sorted_neuron_ids[jj]):
                 spike_times_for_neuron = somas_time[somas_i == neuron_index]
                 ax = axes.flatten()[jj + 2]
-                ax.vlines(spike_times_for_neuron, ymin=ii - 0.5, ymax=ii + 0.5, colors="k")
+                ax.vlines(
+                    spike_times_for_neuron, ymin=ii - 0.5, ymax=ii + 0.5, colors="k"
+                )
                 ax.set_title(
                     f"Sorted for context {context_id}",
                     color=colors[unique_context_ids.index(context_id)][0],
@@ -489,9 +728,6 @@ class NetworMultipleContextsOverTimeWithAssociation(HandleParametersAndResults):
 
         ax_inputs_1.set_title("Inputs (1)")
         ax_inputs_2.set_title("Inputs (2)")
-        # ax_somas.set_title("Area")
-        # ax_somas.set(xlabel="Time in ms", ylim=ax_inputs.get_ylim())
-
         if show_plot:
             plt.show()
 
@@ -500,9 +736,9 @@ class NetworMultipleContextsOverTimeWithAssociation(HandleParametersAndResults):
 
         fig_dim = int(np.ceil(np.sqrt(len(pot_pot) / 2)))
 
-        print(fig_dim, 2 * fig_dim)
-
-        fig, axes_dendrites = plt.subplots(fig_dim, 2 * fig_dim, sharex=True, sharey=True)
+        fig, axes_dendrites = plt.subplots(
+            fig_dim, 2 * fig_dim, sharex=True, sharey=True
+        )
         fig, axes_weights = plt.subplots(fig_dim, 2 * fig_dim, sharex=True, sharey=True)
         fig, axes_dist = plt.subplots(fig_dim, 2 * fig_dim, sharex=True, sharey=True)
         for ii in range(len(pot_pot)):
@@ -528,18 +764,26 @@ class NetworMultipleContextsOverTimeWithAssociation(HandleParametersAndResults):
                 w_sum.append(w)
 
             for w in self.save_dict[f"weight_w_ff_1_{ii}_pot_pot"]:
-                ax.plot(self.save_dict["voltage_weights_t"], w, color="#1d91c0", alpha=0.2)
+                ax.plot(
+                    self.save_dict["voltage_weights_t"], w, color="#1d91c0", alpha=0.2
+                )
                 w_sum.append(w)
 
             for w in self.save_dict[f"weight_w_ff_2_{ii}_pot_pot"]:
-                ax.plot(self.save_dict["voltage_weights_t"], w, color="#54278f", alpha=0.2)
+                ax.plot(
+                    self.save_dict["voltage_weights_t"], w, color="#54278f", alpha=0.2
+                )
                 w_sum.append(w)
 
             ax = axes_dist.flatten()[ii]
             ax.set_title(
                 f"#{pot_pot[ii]} ({self.area.counts_gated[0][pot_pot[ii]]}/{self.area.dends.w_tot[ii]})"
             )
-            ax.hist(gather_weights, bins=np.linspace(0, self.parameters["w_max_rec"], 50), color="k")
+            ax.hist(
+                gather_weights,
+                bins=np.linspace(0, self.parameters["w_max_rec"], 50),
+                color="k",
+            )
             ax.set_ylim([0, 35])
 
             if ii % (2 * fig_dim) == 0:
@@ -552,21 +796,14 @@ class NetworMultipleContextsOverTimeWithAssociation(HandleParametersAndResults):
             plt.show()
 
     def show_traces_for_example_neurons(self, gated=True, show_plot=False):
-        for ii in range(10):
-            print(f"######### Final weights above {ii}")
-            print(np.sum(self.save_dict["weights"] > ii))
         fig, ax = plt.subplots()
         ax.hist(self.save_dict["weights"].flatten(), bins=np.linspace(0, 12, 40))
 
         counts = self.select_ids_gated_counts
         name = "gated"
-        main_color = "#2171b5"
-        neighbour_color = "#fd8d3c"
         if not gated:
             counts = self.select_ids_non_gated_counts
             name = "non_gated"
-            main_color = "#fd8d3c"
-            neighbour_color = "#6a51a3"
 
         fig, ax_w_sum = plt.subplots(1, len(counts))
         fig, axes = plt.subplots(3, len(counts), sharex=True)
@@ -602,22 +839,39 @@ class NetworMultipleContextsOverTimeWithAssociation(HandleParametersAndResults):
 
             try:
                 for w in self.save_dict[f"weight_w_ff_1_{ii}_{name}"]:
-                    ax.plot(self.save_dict["voltage_weights_t"], w, color="#1d91c0", alpha=0.2)
+                    ax.plot(
+                        self.save_dict["voltage_weights_t"],
+                        w,
+                        color="#1d91c0",
+                        alpha=0.2,
+                    )
                     w_sum.append(w)
 
                 for w in self.save_dict[f"weight_w_ff_2_{ii}_{name}"]:
-                    ax.plot(self.save_dict["voltage_weights_t"], w, color="#54278f", alpha=0.2)
+                    ax.plot(
+                        self.save_dict["voltage_weights_t"],
+                        w,
+                        color="#54278f",
+                        alpha=0.2,
+                    )
                     w_sum.append(w)
             except KeyError:
                 # This means we have an old version of the save dict
                 for w in self.save_dict[f"weight_w_ff_{ii}_{name}"]:
-                    ax.plot(self.save_dict["voltage_weights_t"], w, color="#1d91c0", alpha=0.2)
+                    ax.plot(
+                        self.save_dict["voltage_weights_t"],
+                        w,
+                        color="#1d91c0",
+                        alpha=0.2,
+                    )
                     w_sum.append(w)
 
             if ii == 0:
                 ax.set_ylabel("weight")
                 ax_w_sum[ii].set_ylabel("Summed Weight")
-            ax_w_sum[ii].plot(self.save_dict["voltage_weights_t"], np.sum(w_sum, axis=0))
+            ax_w_sum[ii].plot(
+                self.save_dict["voltage_weights_t"], np.sum(w_sum, axis=0)
+            )
             ax_w_sum[ii].set_xlabel("Time in ms")
             ax_w_sum[ii].set_title(self.area.dends[self.select_ids_gated[ii]].w_tot[:])
 
@@ -626,7 +880,10 @@ class NetworMultipleContextsOverTimeWithAssociation(HandleParametersAndResults):
                 ax.set_yticklabels([])
                 ax.sharey(axes[2, 0])
 
-            ax.plot(self.save_dict["voltag_somas_t"], self.save_dict[f"voltage_soma_{name}"][0])
+            ax.plot(
+                self.save_dict["voltag_somas_t"],
+                self.save_dict[f"voltage_soma_{name}"][0],
+            )
             ax.set_xlabel("Time in mS")
             if ii == 0:
                 ax.set_ylabel("Somatic voltage in mV")
@@ -635,45 +892,35 @@ class NetworMultipleContextsOverTimeWithAssociation(HandleParametersAndResults):
             plt.show()
 
     def generate_results(self, axes=None, show_plot=False, save_fig=True):
-        # self.show_weight_matrix(
-        #     matlab_export_name=f"../../results/figures/simulation_results/fig_D_weights_seed_{self.parameters_for_run['seed']}"
-        # )
-
         if axes is None:
             fig, axes = plt.subplots(3, 2, figsize=(24, 16), sharex=True)
 
         self.show_spike_rasters(show_plot=False, axes=axes)
 
-        all_assembly_weights = []
-
-        unique_contexts = list(np.sort(np.unique(self.parameters_for_run["all_context_ids"])))
-        # unique_assembly_ids = list(np.sort(np.unique(self.parameters_for_run["all_assembly_ids"])))
-
-        # all_weights = [[[] for ii in unique_assembly_ids] for jj in unique_contexts]
+        unique_contexts = list(
+            np.sort(np.unique(self.parameters_for_run["all_context_ids"]))
+        )
 
         ax = axes.flatten()[-1]
 
         colors = [
-            ["#08306b", "#08519c", "#4292c6", "#9ecae1", "#deebf7"],
-            ["#00441b", "#006d2c", "#41ab5d", "#a1d99b", "#e5f5e0"],
-            ["#7f2704", "#d94801", "#fd8d3c", "#fdd0a2", "#fee6ce"],
+            ["#82C780", "#046937", "#4292c6", "#9ecae1", "#deebf7"],
+            ["#BDAED5", "#67338E", "#41ab5d", "#a1d99b", "#e5f5e0"],
+            ["#FCC085", "#B37129", "#fd8d3c", "#fdd0a2", "#fee6ce"],
         ]
 
         n_assembly = [-1 for ii in unique_contexts]
 
         for context_id, assembly_ids in zip(
-            self.parameters_for_run["all_context_ids"], self.parameters_for_run["all_assembly_ids"]
+            self.parameters_for_run["all_context_ids"],
+            self.parameters_for_run["all_assembly_ids"],
         ):
             assembly_neuron_ids = self.get_assembly_neuron_ids(context_id, assembly_ids)
-            print("ASSEMBLY NEURON IDS", assembly_neuron_ids)
 
             aa = unique_contexts.index(context_id)
-            # bb = unique_assembly_ids.index(assembly_id)
 
             n_assembly[aa] += 1
             all_weights = []
-
-            all_post_dend_ids = []
 
             for ii, post_dend_id in enumerate(self.rec_list):
                 post_neuron_id = post_dend_id // self.parameters["n_dend_each"]
@@ -682,7 +929,9 @@ class NetworMultipleContextsOverTimeWithAssociation(HandleParametersAndResults):
                     if post_dend_id % self.parameters["n_dend_each"] == context_id:
                         # now we go through all weights and see if they come from within assembly neurons
 
-                        synapse_ids = np.where((self.area.synapses_E.j)[:] == post_dend_id)[0]
+                        synapse_ids = np.where(
+                            (self.area.synapses_E.j)[:] == post_dend_id
+                        )[0]
 
                         synapse_sources = self.area.synapses_E.i[synapse_ids]
 
@@ -691,14 +940,6 @@ class NetworMultipleContextsOverTimeWithAssociation(HandleParametersAndResults):
                             for mm, source in enumerate(synapse_sources)
                             if source in assembly_neuron_ids
                         ]
-
-                        print(
-                            "#",
-                            len(synapses_from_assembly),
-                            len(assembly_neuron_ids),
-                            post_dend_id,
-                            post_neuron_id,
-                        )
 
                         weights = self.save_dict["pot_pot_recurrent_w"][
                             ii
@@ -709,15 +950,11 @@ class NetworMultipleContextsOverTimeWithAssociation(HandleParametersAndResults):
 
                         weights_from_within = weights[synapses_from_assembly, :]
 
-                        # all_weights[aa][bb].append(weights_from_within)
                         all_weights.append(weights_from_within)
 
             try:
-                # all_weights[aa][bb] = np.vstack(all_weights[aa][bb])
-                # these_weights = all_weights[aa][bb]
                 all_weights = np.vstack(all_weights)
                 these_weights = all_weights
-                print("$$, ", these_weights.shape)
                 ax.plot(
                     self.save_dict["weights_t"],
                     np.mean(these_weights, axis=0),
@@ -749,7 +986,9 @@ class NetworMultipleContextsOverTimeWithAssociation(HandleParametersAndResults):
     def get_assembly_neuron_ids(self, context_id, assembly_ids):
         _, selected_ids = self.sort_neurons_by_firing_rate()
 
-        assembly_neuron_ids = selected_ids[context_id][f"{assembly_ids[0]}_{assembly_ids[1]}"]
+        assembly_neuron_ids = selected_ids[context_id][
+            f"{assembly_ids[0]}_{assembly_ids[1]}"
+        ]
 
         return assembly_neuron_ids
 

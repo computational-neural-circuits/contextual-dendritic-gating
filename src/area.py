@@ -1,11 +1,7 @@
 import brian2 as br
 from brian2.units import *
 import numpy as np
-import time
 
-import matplotlib.pyplot as plt
-
-# import brian2tools as b2t
 br.prefs.codegen.target = "cython"
 
 
@@ -19,6 +15,7 @@ class Area:
         input_units_1=None,
         input_units_2=None,
         only_setup_basics=False,
+        normalization_clock=None,
     ):
         """A class representing one area of the neural network.
 
@@ -43,7 +40,9 @@ class Area:
         self.n_somas = self.params["n_somas"]
         self.n_dends_each = self.params["n_dend_each"]
         self.n_dends = self.n_somas * self.n_dends_each
-        self.params["gTotCouple_pyr"] = self.params["gEachCouple_pyr"] * self.n_dends_each
+        self.params["gTotCouple_pyr"] = (
+            self.params["gEachCouple_pyr"] * self.n_dends_each
+        )
 
         self.integration_method = "euler"
 
@@ -65,9 +64,20 @@ class Area:
             )
 
         if self.normalize:
-            self.normalization = br.NetworkOperation(
-                self.__normalize, dt=self.params["norm_dt"], name=f"normalization_{self.name}"
-            )
+            if normalization_clock is None:
+
+                self.normalization = br.NetworkOperation(
+                    self.__normalize,
+                    dt=self.params["norm_dt"],
+                    name=f"normalization_{self.name}",
+                )
+
+            else:
+                self.normalization = br.NetworkOperation(
+                    self.__normalize,
+                    name=f"normalization_{self.name}",
+                    clock=normalization_clock,
+                )
             self.net.add(self.normalization)
 
         if input_units_1 is None:
@@ -88,7 +98,9 @@ class Area:
         self.__connect_inputs()
 
         # Set up inhibitory population
-        assert self.params["n_contexts"] >= 0, "Number of contexts must be a non-negative integer."
+        assert (
+            self.params["n_contexts"] >= 0
+        ), "Number of contexts must be a non-negative integer."
         self.n_contexts = self.params["n_contexts"]
         self.contexts_used = np.zeros(self.params["n_contexts"], dtype=bool)
 
@@ -137,11 +149,6 @@ class Area:
         self.dends.iTotNMDA2 = 0 * amp
         self.dends.iTotNMDA3 = 0 * amp
 
-        # Attributes representing coupling (not synapses) between somas and their dendrites
-        # # Which soma (soma_dend_map[i]) connects to which dendrites
-        # self.soma_dend_map = np.reshape(np.array(range(self.n_dends), dtype=int),
-        #                        (self.n_somas, self.params['n_dend_each']))
-
         self.coupling_dend_to_soma = br.Synapses(
             self.dends,
             self.somas,
@@ -182,7 +189,11 @@ class Area:
                 self.eqs["Synapse_net"]
                 .replace("iTotNMDA1", f"iTotNMDA{iu+2}")
                 .replace("w_max", "w_max_ff"),
-                on_pre=self.eqs["on_pre"].replace("w_max", "w_max_ff").replace("w_min", "w_min_ff"),
+                on_pre=self.eqs["on_pre"]
+                .replace("w_max", "w_max_ff")
+                .replace("w_min", "w_min_ff")
+                .replace("gTotAMPA1", f"gTotAMPA{iu+2}"),
+                # This last replacement is never really needed, only when currents are recorded,
                 namespace=self.params,
                 method=self.integration_method,
                 name=f"synapse_input_{iu}_to_{self.name}",
@@ -211,7 +222,9 @@ class Area:
             n_inputs = np.sum(self.input_synapses[0].j == dend_id) + np.sum(
                 self.input_synapses[1].j == dend_id
             )
-            w_tot = n_inputs * self.params["ff_w"] + self.params["w0"] * (self.n_somas - 1)
+            w_tot = n_inputs * self.params["ff_w"] + self.params["w0"] * (
+                self.n_somas - 1
+            )
             all_w_tot.append(w_tot)
             self.dends[dend_id].w_tot = w_tot
 
@@ -228,9 +241,7 @@ class Area:
         Args:
             soma (int): The index of the soma for which the dendrites are sought.
         """
-        assert (
-            soma >= 0 and soma < self.n_somas
-        ), f"Soma of id {soma} doesn't exist.\
+        assert soma >= 0 and soma < self.n_somas, f"Soma of id {soma} doesn't exist.\
             There are {self.n_somas} somas."
         return np.array(range(soma * self.n_dends_each, (soma + 1) * self.n_dends_each))
 
@@ -240,9 +251,7 @@ class Area:
         Args:
             dend (int): The index of the soma for which the dendrites are sought.
         """
-        assert (
-            dend >= 0 and dend < self.n_dends
-        ), f"Dend of id {dend} doesn't exist.\
+        assert dend >= 0 and dend < self.n_dends, f"Dend of id {dend} doesn't exist.\
             There are {self.n_dends} somas."
         return dend // self.n_dends_each
 
@@ -256,7 +265,9 @@ class Area:
             self.somas,
             self.dends,
             self.eqs["Synapse_net"].replace("w_max", "w_max_rec"),
-            on_pre=self.eqs["on_pre"].replace("w_max", "w_max_rec").replace("w_min", "w_min_rec"),
+            on_pre=self.eqs["on_pre"]
+            .replace("w_max", "w_max_rec")
+            .replace("w_min", "w_min_rec"),
             namespace=self.params,
             method=self.integration_method,
             name=f"recurrent_synapses_area_{self.name}",
@@ -271,7 +282,9 @@ class Area:
         for soma in range(self.n_somas):
             temp = np.arange(self.n_dends, dtype=int)
             full_tgts = np.append(full_tgts, temp[: soma * self.params["n_dend_each"]])
-            full_tgts = np.append(full_tgts, temp[(soma + 1) * self.params["n_dend_each"] :])
+            full_tgts = np.append(
+                full_tgts, temp[(soma + 1) * self.params["n_dend_each"] :]
+            )
         assert len(full_srcs) == len(full_tgts)
 
         self.synapses_E.connect(i=full_srcs, j=full_tgts, p=conn_prob)
@@ -282,8 +295,6 @@ class Area:
         self.syns_on_dendrites = np.asarray(
             [np.asarray(self.tgts == j).nonzero()[0] for j in np.unique(self.tgts)]
         )
-        # self.normalisation_time = np.zeros(1)
-
         self.net.add(self.synapses_E)
 
     def __add_feedforward_inhibition(self):
@@ -327,7 +338,9 @@ class Area:
 
         self.connect_to_ff_inhibition.connect(p=1)
 
-        srcs = np.array([ii // self.n_dends_each for ii in range(self.n_somas * self.n_dends_each)])
+        srcs = np.array(
+            [ii // self.n_dends_each for ii in range(self.n_somas * self.n_dends_each)]
+        )
         tgts = [ii for ii in range(self.n_somas * self.n_dends_each)]
         np.random.shuffle(tgts)
 
@@ -353,6 +366,13 @@ class Area:
         )
 
     def __add_context_inhibition(self):
+        if self.n_contexts == 0:
+            self.dends_of_ctxt = [[ii for ii in range(self.n_somas)]]
+            self.synapses_I_context = None
+            self.context_inhibitors = None
+            self.tgts_of_ctxt = None
+            return
+
         ##### Context Inhibtion
         self.context_inhibitors = br.PoissonGroup(
             self.n_somas * self.n_contexts,
@@ -375,10 +395,7 @@ class Area:
             tgts, (self.n_contexts, self.n_somas * (self.n_dends_each - 1))
         )
 
-        # An array holding dendrite ids which don't get inhibited by subsequent context neurons
         self.dends_of_ctxt = np.reshape(skipped, (self.n_contexts, self.n_somas))
-        # print("Dends of ctxt:")
-        # print(self.dends_of_ctxt)
         self.synapses_I_context.connect(i=srcs, j=tgts)
 
         self.net.add(
@@ -430,9 +447,13 @@ class Area:
             name=f"synapses_to_recurrent_inhibition_in_area_{self.name}",
         )
 
-        self.syn_to_rec_inhib_pop.connect(p=self.params["rec_inhib_connect_pro_to_population"])
+        self.syn_to_rec_inhib_pop.connect(
+            p=self.params["rec_inhib_connect_pro_to_population"]
+        )
         # syn_to_rec_inhib_pop.open = 0
-        self.syn_to_rec_inhib_pop.theta_syn = self.params["rec_inhib_rate_estimator_threshold"]
+        self.syn_to_rec_inhib_pop.theta_syn = self.params[
+            "rec_inhib_rate_estimator_threshold"
+        ]
 
         self.synapse_som_to_dend = br.Synapses(
             self.rec_inihib_pop,
@@ -443,7 +464,9 @@ class Area:
             method=self.integration_method,
             name=f"synapses_from_recurrent_inhibition_in_area_{self.name}",
         )
-        self.synapse_som_to_dend.connect(p=self.params["rec_inhib_connect_pro_to_dendrites"])
+        self.synapse_som_to_dend.connect(
+            p=self.params["rec_inhib_connect_pro_to_dendrites"]
+        )
 
         self.net.add(
             self.rec_inihib_pop,
@@ -464,7 +487,8 @@ class Area:
                 # Which of the 6 dendrites does not get inhibition
                 if self.non_overlapping_ctxt:
                     assert self.n_dends_each >= self.n_contexts, (
-                        "More contexts" f" ({self.n_contexts}) than dendrites ({self.n_dends_each})!"
+                        "More contexts"
+                        f" ({self.n_contexts}) than dendrites ({self.n_dends_each})!"
                     )
                     uninhibited = c
                 else:
@@ -475,11 +499,12 @@ class Area:
                 dend_tgts = np.append(former, latter)
                 skipped = np.append(skipped, self.soma_dend_map(s)[uninhibited])
                 tgts_of_ctxt = np.append(tgts_of_ctxt, dend_tgts)
-                # print(tgts)
             np.random.shuffle(tgts_of_ctxt)
             tgts = np.append(tgts, tgts_of_ctxt)
         n_independent_sources = self.n_somas * self.n_contexts
-        srcs = np.linspace(0, n_independent_sources - 1, n_independent_sources).astype(int)
+        srcs = np.linspace(0, n_independent_sources - 1, n_independent_sources).astype(
+            int
+        )
         srcs = np.repeat(srcs, (self.n_dends_each - 1))
         assert len(srcs) == len(tgts)
         assert (
@@ -501,13 +526,15 @@ class Area:
 
         for ii in range(2):
             weights_ff = np.zeros(shape=(self.n_somas, self.n_dends))
-            weights_ff[self.input_synapses[ii].i, self.input_synapses[ii].j] = self.input_synapses[
-                ii
-            ].w
+            weights_ff[self.input_synapses[ii].i, self.input_synapses[ii].j] = (
+                self.input_synapses[ii].w
+            )
 
             weights = np.vstack([weights, weights_ff])
 
-        weights = np.subtract(weights, self.params["eta"] * (np.sum(weights, axis=0) - w_tot))
+        weights = np.subtract(
+            weights, self.params["eta"] * (np.sum(weights, axis=0) - w_tot)
+        )
 
         for ii in [1, 0]:  # going in reverse order!
             weights_ff = weights[-self.n_somas :, :]
@@ -515,7 +542,9 @@ class Area:
 
             self.input_synapses[ii].w = np.clip(
                 weights_ff[self.input_synapses[ii].i, self.input_synapses[ii].j],
-                self.dends.w_min_ff[self.input_synapses[ii].j],  # we need to substitue w_min_ff
+                self.dends.w_min_ff[
+                    self.input_synapses[ii].j
+                ],  # we need to substitue w_min_ff
                 self.params["w_max_ff"],
             )
 
@@ -530,8 +559,12 @@ class Area:
         context_id=0,
         subsets: list = [[ii for ii in range(20)] for ii in range(2)],
     ):
-        self.counts_gated = np.zeros((2, self.n_dends_each * self.n_somas)) * float("NaN")
-        self.counts_non_gated = np.zeros((2, self.n_dends_each * self.n_somas)) * float("NaN")
+        self.counts_gated = np.zeros((2, self.n_dends_each * self.n_somas)) * float(
+            "NaN"
+        )
+        self.counts_non_gated = np.zeros((2, self.n_dends_each * self.n_somas)) * float(
+            "NaN"
+        )
         self.counts_neurons_gated = np.zeros((2, self.n_somas)) * float("NaN")
 
         select_arrays = []
@@ -551,9 +584,9 @@ class Area:
                         (self.input_synapses[nn].j[:])[select_arrays[nn]] == ii
                     )
 
-                    self.counts_neurons_gated[nn, ii // self.n_dends_each] = self.counts_gated[
-                        nn, ii
-                    ]
+                    self.counts_neurons_gated[nn, ii // self.n_dends_each] = (
+                        self.counts_gated[nn, ii]
+                    )
             else:
                 for nn in range(2):
                     self.counts_non_gated[nn, ii] = np.count_nonzero(
@@ -568,9 +601,10 @@ class Area:
             inhib (float*Hz, optional): Rate of the inhibitory spikes.
                 Defaults to 'inhib_rate' from parameters.txt.
         """
-        assert (
-            context_id < self.n_contexts
-        ), f"Invalid context id {context_id}.\
+        if self.n_contexts == 0:
+            return
+
+        assert context_id < self.n_contexts, f"Invalid context id {context_id}.\
             Only {self.n_contexts} available."
         if rate is None:
             rate = self.params["context_inhib_rate"]
@@ -579,12 +613,12 @@ class Area:
         self.context_inhibitors[
             context_id * self.n_somas : (context_id + 1) * self.n_somas
         ].rates = rate
-        # print(self.inhibitors.rates)
         self.contexts_used[context_id] = True
 
     def stop_context(self):
         """Stops all inhibitory generators."""
-        self.context_inhibitors.rates = 0 * Hz
+        if self.context_inhibitors is not None:
+            self.context_inhibitors.rates = 0 * Hz
 
     def start_excitation(self, soma_ids, excitation):
         """Set external current I_ext to neurons specified in soma_ids.

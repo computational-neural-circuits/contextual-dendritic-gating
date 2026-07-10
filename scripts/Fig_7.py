@@ -1,54 +1,58 @@
 from brian2.units import *
-import brian2 as br2
 import numpy as np
 
 from src.network_recall import (
     NetworkRecall,
 )
 from src.get_activity_metrics import get_activity_metrics_from_assembly_neurons
-from figure_4 import run_large_imprint_with_recall
+from src.utils import get_path_to_save_file_name
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.colorbar import ColorbarBase
 from multiprocessing import Pool
-from matplotlib_venn import venn3
+
+plt.style.use("../plots_style.txt")
 
 
-def paper_figure_6(only_load_results=False):
+def Fig_7(only_load_results=False):
     (
         fig,
         ax_recall_multi_area,
         ax_recall_multi_area_avg_firing_rate,
         ax_recall_multi_area_n_active,
-    ) = create_figure_layout_paper_fig_6()
+    ) = create_figure_layout_Fig_7()
 
-    show_multi_layer_recall_for_many_responses(
+    normalization_clocks = None
+
+    normalization_clocks = show_multi_layer_recall_for_many_responses(
         axes=ax_recall_multi_area,
         only_load_results=only_load_results,
         seed=843,
         all_assembly_ids_for_areas=[[(0, -1, 0)]],
         normalize_results=True,
         show_plot=False,
+        normalization_clocks=normalization_clocks,
     )
 
-    show_multi_layer_recall_max_response(
+    normalization_clocks = show_multi_layer_recall_max_response(
         axes=[ax_recall_multi_area_avg_firing_rate, ax_recall_multi_area_n_active],
         show_plot=False,
+        normalization_clocks=normalization_clocks,
     )
-    fig.savefig("../../results/figures/paper_fig_6.pdf", dpi=800)
+    fig.savefig("../results/figures/Fig_7.pdf", dpi=800)
 
 
-def create_figure_layout_paper_fig_6():
+def create_figure_layout_Fig_7():
     fig = plt.figure(figsize=(20, 8))
-    gs = fig.add_gridspec(4, 10, hspace=1, wspace=1)
+    gs = fig.add_gridspec(4, 12, hspace=1, wspace=1)
 
     ax_recall_multi_area = (
         [fig.add_subplot(gs[ii * 2 : (ii + 1) * 2, 2:4]) for ii in range(2)]
         + [fig.add_subplot(gs[ii * 2 : (ii + 1) * 2, 4:6]) for ii in range(2)]
         + [fig.add_subplot(gs[:4, 1:2])]
     )
-    ax_recall_multi_area_avg_firing_rate = fig.add_subplot(gs[1:3, 6:8])
-    ax_recall_multi_area_n_active = fig.add_subplot(gs[1:3, 8:10])
+    ax_recall_multi_area_avg_firing_rate = fig.add_subplot(gs[1:3, 6:9])
+    ax_recall_multi_area_n_active = fig.add_subplot(gs[1:3, 9:12])
 
     return (
         fig,
@@ -56,111 +60,6 @@ def create_figure_layout_paper_fig_6():
         ax_recall_multi_area_avg_firing_rate,
         ax_recall_multi_area_n_active,
     )
-
-
-def run_multi_layer_recall_on_server(max_cores=2, get_all_specific_values=False):
-    all_seeds = [
-        # 234,
-        512,
-        693,
-        833,
-        9210,
-        492,
-        593,
-        220,
-        4312,
-        434,
-        256,
-        722,
-        532,
-        688,
-        342,
-        636,
-        83,
-        324,
-        642,
-        432,
-        968,
-        4326,
-        3662,
-        7574,
-        84,
-        5235,
-        35677,
-        3253,
-        6227,
-        5248,
-        442,
-        6784,
-        43,
-    ]
-
-    axes = None
-    change_firing_rate = None
-    only_load_results = False
-    show_results = False
-    show_plot = False
-    only_run_imprint = True
-
-    params = []
-
-    all_recall_seeds = [0, 1, 2, 3, 4]
-    all_deleted_neurons = [
-        8,
-        10,
-        12,
-    ]
-
-    all_specific_values = []
-    for seed in all_seeds:
-        specific_values = (seed, all_recall_seeds, all_deleted_neurons)
-        all_specific_values.append(specific_values)
-        params.append(
-            (
-                axes,
-                change_firing_rate,
-                only_load_results,
-                show_results,
-                show_plot,
-                only_run_imprint,
-                specific_values,
-            )
-        )
-
-    if get_all_specific_values:
-        return all_specific_values
-
-    n_cores = np.min([len(params), max_cores])
-    with Pool(n_cores) as pool:
-        _ = pool.starmap(
-            multi_layer_recall,
-            params,
-        )
-
-    params = []
-
-    only_run_imprint = False
-    for change_firing_rate in [True, False]:
-        for seed in all_seeds:
-            specific_values = (seed, all_recall_seeds, all_deleted_neurons)
-            params.append(
-                (
-                    axes,
-                    change_firing_rate,
-                    only_load_results,
-                    show_results,
-                    show_plot,
-                    only_run_imprint,
-                    specific_values,
-                )
-            )
-
-    n_cores = np.min([len(params), max_cores])
-    with Pool(n_cores) as pool:
-        _ = pool.starmap(
-            multi_layer_recall,
-            params,
-        )
 
 
 def run_multilayer_recall_and_get_results(
@@ -195,12 +94,14 @@ def run_multilayer_recall_and_get_results(
             2,
         )
     ) * float("nan")
-    all_n_active_neurons_end_of_imprint = np.zeros_like(all_avg_firing_rates_end_of_imprint) * float(
-        "nan"
-    )
+    all_n_active_neurons_end_of_imprint = np.zeros_like(
+        all_avg_firing_rates_end_of_imprint
+    ) * float("nan")
 
     for network_seed_id, network_seed in enumerate(all_network_seeds[:]):
-        for aids_id, all_assembly_ids_for_areas in enumerate(list_of_all_assembly_ids_for_areas):
+        for aids_id, all_assembly_ids_for_areas in enumerate(
+            list_of_all_assembly_ids_for_areas
+        ):
             (
                 [avg_firing_rates, n_active_neurons],
                 [
@@ -218,23 +119,25 @@ def run_multilayer_recall_and_get_results(
                 change_firing_rate,
             )
 
-            print("#", avg_firing_rates)
-
             all_avg_firing_rates[network_seed_id, aids_id] = avg_firing_rates
-            all_avg_firing_rates_end_of_imprint[
-                network_seed_id, aids_id
-            ] = avg_firing_rates_end_of_imprint
+            all_avg_firing_rates_end_of_imprint[network_seed_id, aids_id] = (
+                avg_firing_rates_end_of_imprint
+            )
             all_n_active_neurons[network_seed_id, aids_id] = n_active_neurons
-            all_n_active_neurons_end_of_imprint[
-                network_seed_id, aids_id
-            ] = n_active_neurons_end_of_imprint
+            all_n_active_neurons_end_of_imprint[network_seed_id, aids_id] = (
+                n_active_neurons_end_of_imprint
+            )
 
     if normalize_results:
         a, b, c, _ = all_avg_firing_rates_end_of_imprint.shape
-        reshaped = all_avg_firing_rates_end_of_imprint[:, :, :, 0].reshape(a, b, c, 1, 1, 1, 1)
+        reshaped = all_avg_firing_rates_end_of_imprint[:, :, :, 0].reshape(
+            a, b, c, 1, 1, 1, 1
+        )
         all_avg_firing_rates /= reshaped
 
-        reshaped = all_n_active_neurons_end_of_imprint[:, :, :, 0].reshape(a, b, c, 1, 1, 1, 1)
+        reshaped = all_n_active_neurons_end_of_imprint[:, :, :, 0].reshape(
+            a, b, c, 1, 1, 1, 1
+        )
         all_n_active_neurons /= reshaped
 
     return (
@@ -252,18 +155,14 @@ def show_multi_layer_recall_for_many_responses(
     all_assembly_ids_for_areas=[[(0, -1, 0)]],
     normalize_results=True,
     show_plot=True,
+    normalization_clocks=None,
 ):
-    net = get_network_for_investigation(seed=seed)
-    # all_recall_seeds = [3, 4, 5]
-    # all_recall_seeds = [0, 1, 2]
+    net, normalization_clocks = get_network_for_investigation(
+        seed=seed, normalization_clocks=normalization_clocks
+    )
     all_recall_seeds = [0, 1, 2, 3, 4, 5]
-    # all_deleted_neurons = [0, 4, 8, 12, 16]
-    # all_deleted_neurons = [2, 6, 10, 14, 18]
     all_deleted_neurons = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]
-    # all_recall_sizes = [ii for ii in range(21) if ii % 4 == 0]
-    # all_recall_sizes = [ii for ii in range(21) if (ii % 2 == 0) and not (ii % 4 == 0)]
     all_recall_sizes = [ii for ii in range(21)]
-    print(all_recall_sizes)
 
     change_firing_rate = True
 
@@ -288,10 +187,8 @@ def show_multi_layer_recall_for_many_responses(
     if axes is None:
         fig, axes = plt.subplots(3, 2)
         axes = axes.flatten()
-    cmap = plt.cm.Greys_r  # define the colormap
-    max_val = max(all_deleted_neurons)
+    cmap = plt.cm.Greys_r
     bounds = np.arange(0, len(all_deleted_neurons))
-    print(bounds)
     norm = mpl.colors.BoundaryNorm(bounds, cmap.N)
 
     cb = ColorbarBase(
@@ -326,16 +223,17 @@ def show_multi_layer_recall_for_many_responses(
 
                 y_values = np.nanmean(y_values, axis=0)
 
-                print(y_values.shape)
-                print(y_values)
-
                 ax[area_id].plot(
                     all_recall_sizes,
                     y_values,
                     color=cmap(norm(all_deleted_neurons.index(deleted_neurons))),
                 )
+
+            ax[area_id].set(ylim=[0, 1.06])
     if show_plot:
         plt.show()
+
+    return normalization_clocks
 
 
 def show_multi_layer_recall_max_response(
@@ -345,17 +243,18 @@ def show_multi_layer_recall_max_response(
     # contains the network seed to highlight and the assembly_ids_for_all_areas for that network
     highlight_point_for=[843, [[(0, -1, 0)]]],
     show_plot=True,
+    normalization_clocks=None,
 ):
     all_seeds = run_how_does_association_change_the_recall_on_server(get_seeds=True)
 
-    # for network_seed in all_seeds:
-    net = get_network_for_investigation(seed=all_seeds[0])
+    net, normalization_clocks = get_network_for_investigation(
+        seed=all_seeds[0], normalization_clocks=normalization_clocks
+    )
 
     all_recall_seeds = [0]
     all_deleted_neurons = [0, 10]
     all_recall_sizes = [20]
 
-    change_firing_rate = True
     list_of_all_assembly_ids_for_areas = [[[(0, 0, -1)]], [[(0, -1, 0)]]]
 
     (
@@ -386,42 +285,92 @@ def show_multi_layer_recall_max_response(
     xticks = []
     xticklabels = []
 
-    for ax, res, ylabel in zip(
-        axes,
-        [all_avg_firing_rates, all_n_active_neurons],
-        ["avg. firing rate of assembly", "n active neurons of assembly"],
+    all_area_names = ["Y", "Z"]
+    assembly_background_name_list = ["assembly", "bck"]
+    recall_export_keys = []
+    for area_name in all_area_names:
+        for assembly_background_name in assembly_background_name_list:
+            for deleted_neurons in all_deleted_neurons:
+                recall_export_keys.append(
+                    f"{area_name}_{assembly_background_name}_{deleted_neurons}_silenced"
+                )
+
+    recall_export = [{}, {}]
+    for ii in range(2):
+        for key in recall_export_keys:
+            recall_export[ii][key] = []
+
+    for n_id, (ax, res, ylabel) in enumerate(
+        zip(
+            axes,
+            [all_avg_firing_rates, all_n_active_neurons],
+            ["avg. firing rate of assembly", "n active neurons of assembly"],
+        )
     ):
-        for area_id, area_name in enumerate(["A", "B"]):
-            for deleted_neurons in [0, 10]:
-                for assembly_background, assembly_background_name in enumerate(["assembly", "bck"]):
+        for area_id, area_name in enumerate(all_area_names):
+            for deleted_neurons in all_deleted_neurons:
+                for assembly_background, assembly_background_name in enumerate(
+                    assembly_background_name_list
+                ):
                     firing_rates_full_recall = np.nanmean(
                         res[
                             :,
                             :,
                             area_id,
                             :,  # take mean
-                            all_deleted_neurons.index(deleted_neurons),  # we are at full recall
+                            all_deleted_neurons.index(
+                                deleted_neurons
+                            ),  # we are at full recall
                             all_recall_sizes.index(20),
                             assembly_background,  # we look at the assembly neurons
                         ],
                         axis=2,
                     ).flatten()
 
-                    initial_xval = area_id + deleted_neurons * 0.25 - 0.5 * assembly_background
+                    for e_s_id, e_seed_id in enumerate(all_seeds):
+                        for l_id, _ in enumerate(list_of_all_assembly_ids_for_areas):
+                            recall_export[n_id][
+                                f"{area_name}_{assembly_background_name}_{deleted_neurons}_silenced"
+                            ].append(
+                                [
+                                    e_seed_id,
+                                    l_id,
+                                    np.nanmean(
+                                        res[
+                                            e_s_id,
+                                            l_id,
+                                            area_id,
+                                            :,
+                                            all_deleted_neurons.index(deleted_neurons),
+                                            all_recall_sizes.index(20),
+                                            assembly_background,
+                                        ]
+                                    ),
+                                ]
+                            )
+
+                    initial_xval = (
+                        area_id + deleted_neurons * 0.25 - 0.5 * assembly_background
+                    )
                     xticks.append(initial_xval)
 
-                    x_val = initial_xval + np.random.rand(len(firing_rates_full_recall)) * 0.3 - 0.15
+                    x_val = (
+                        initial_xval
+                        + np.random.rand(len(firing_rates_full_recall)) * 0.3
+                        - 0.15
+                    )
                     y_val = firing_rates_full_recall
 
                     point_id = (
                         highlight_seed_id * len(list_of_all_assembly_ids_for_areas)
                         + highlight_all_assembly_ids_for_areas_id
                     )
-                    print("$$", point_id, highlight_seed_id, highlight_all_assembly_ids_for_areas_id)
                     highlight_point = (x_val[point_id], y_val[point_id])
 
                     if assembly_background == 1:
-                        ax.text(initial_xval + 0.25, -0.25, f"area {area_name}", ha="center")
+                        ax.text(
+                            initial_xval + 0.25, -0.25, f"area {area_name}", ha="center"
+                        )
 
                         if area_id == 0:
                             ax.text(
@@ -438,7 +387,6 @@ def show_multi_layer_recall_max_response(
                         y_val,
                     )
 
-                    print("$$", area_id, deleted_neurons, np.argsort(y_val))
                     ax.annotate(
                         "",
                         xy=highlight_point,
@@ -450,6 +398,14 @@ def show_multi_layer_recall_max_response(
         ax.set(xticks=xticks, xticklabels=xticklabels, ylabel=ylabel)
     if show_plot:
         plt.show()
+
+    for ii, save_name in enumerate(["avg_fr", "n_active"]):
+        for key in recall_export_keys:
+            values = np.array(recall_export[ii][key])
+            path = get_path_to_save_file_name("Fig_7", "B_" + save_name + "_" + key)
+            np.savetxt(path, values)
+
+    return normalization_clocks
 
 
 def multi_layer_recall(
@@ -463,7 +419,6 @@ def multi_layer_recall(
     #
     change_firing_rate=True,
 ):
-    print("NETWORK SEED: ", network_seed)
     net.only_load_results = only_load_results
     net.parameters_for_run["seed"] = network_seed
 
@@ -474,7 +429,6 @@ def multi_layer_recall(
     rtm = net.parameters_for_run["runtime_imprint"] / msecond
     rtm_recall = runtime_recall / msecond
 
-    # shape: (network_seeds, inputs, areas, seeds, deleted, activated, in/out of assembly)
     avg_firing_rates = np.zeros(
         (
             len(net.all_areas),
@@ -492,21 +446,22 @@ def multi_layer_recall(
             2,
         )
     ) * float("nan")
-    n_active_neurons_end_of_imprint = np.zeros_like(avg_firing_rates_end_of_imprint) * float("nan")
+    n_active_neurons_end_of_imprint = np.zeros_like(
+        avg_firing_rates_end_of_imprint
+    ) * float("nan")
 
     net.run_imprint(report_style="text", report_period=900 * second)
-    network_filename = net.save_dict["filename_for_stored_network"].decode("utf-8") + "_0"
-    net.network.restore(filename=net.get_path_to_stored_networks(file_name=network_filename))
-
-    print("Check for different initiation")
-    print(net.all_areas[0].input_synapses[0].j)
-    print(net.all_areas[0].synapse_som_to_dend.j)
+    network_filename = (
+        net.save_dict["filename_for_stored_network"].decode("utf-8") + "_0"
+    )
+    net.network.restore(
+        filename=net.get_path_to_stored_networks(file_name=network_filename)
+    )
 
     sorted_neuron_ids = []
     selected_ids = []
 
     if not net.save_dict:
-        print("RETURNED NAN FOR SEED: ", network_seed)
         return (
             avg_firing_rates,
             n_active_neurons,
@@ -536,31 +491,28 @@ def multi_layer_recall(
         )
 
         avg_firing_rates_end_of_imprint[area_id, 0] = avg_fr_after_imprint
-        avg_firing_rates_end_of_imprint[area_id, 1] = avg_firing_rate_not_in_assembly_after_imprint
+        avg_firing_rates_end_of_imprint[area_id, 1] = (
+            avg_firing_rate_not_in_assembly_after_imprint
+        )
         n_active_neurons_end_of_imprint[area_id, 0] = n_act_n_after_imprint
-        n_active_neurons_end_of_imprint[area_id, 1] = n_active_neurons_not_in_assembly_after_imprint
-
-    # net.show_spike_rasters(
-    #     show_plot=True,
-    #     highlight_neuron_ids=None,
-    #     sort_for_specific_imprint=None,
-    #     show_vertical_lines_at=[bsl + rtm - rtm_recall, bsl + rtm],
-    # )
-    print(len(a), len(b))
-    print(selected_ids)
-    # net.show_spike_rasters(show_plot=True)
+        n_active_neurons_end_of_imprint[area_id, 1] = (
+            n_active_neurons_not_in_assembly_after_imprint
+        )
 
     for seed_id, recall_seed in enumerate(all_recall_seeds):
-        for delete_id, remove_n_neurons_from_first_assembly in enumerate(all_deleted_neurons):
+        for delete_id, remove_n_neurons_from_first_assembly in enumerate(
+            all_deleted_neurons
+        ):
             x_values = []
             for active_id, recall_size in enumerate(all_recall_sizes):
-                print("######:", seed_id, active_id, delete_id)
                 run_recall_after_imprint = True
 
                 np.random.seed(recall_seed)
                 if remove_n_neurons_from_first_assembly > 0:
                     neurons_to_silence = np.random.choice(
-                        selected_ids[0], remove_n_neurons_from_first_assembly, replace=False
+                        selected_ids[0],
+                        remove_n_neurons_from_first_assembly,
+                        replace=False,
                     ).tolist()
                 else:
                     neurons_to_silence = []
@@ -593,7 +545,9 @@ def multi_layer_recall(
                     net.parameters_for_run.update({"assembly_size_recall": recall_size})
 
                 if change_firing_rate:
-                    x_values.append(net.parameters_for_run["assembly_firing_rate_recall"])
+                    x_values.append(
+                        net.parameters_for_run["assembly_firing_rate_recall"]
+                    )
                 else:
                     x_values.append(net.parameters_for_run["assembly_size_recall"])
 
@@ -605,20 +559,9 @@ def multi_layer_recall(
                 start_recall = bsl + (rtm + bsl) * (
                     1 + net.parameters_for_run["recall_after_imprint_id"]
                 )
-                end_recall = start_recall + net.parameters_for_run["runtime_recall"] / msecond
-
-                # if len(neurons_to_silence) > 0:
-                #     net.show_spike_rasters(
-                #         show_plot=True,
-                #         highlight_neuron_ids=[
-                #             [
-                #                 0,
-                #                 neurons_to_silence,
-                #             ]
-                #         ],  # [[mm, rr] for mm, rr in enumerate(selected_ids)],
-                #         sort_for_specific_imprint=None,
-                #         show_vertical_lines_at=[start_recall, end_recall],
-                #     )
+                end_recall = (
+                    start_recall + net.parameters_for_run["runtime_recall"] / msecond
+                )
 
                 for area_id, area in enumerate(net.all_areas):
                     (
@@ -636,22 +579,17 @@ def multi_layer_recall(
                         end_time=end_recall,
                     )
 
-                    # shape: (inputs, areas, seeds, deleted, activated, in/out)
-
-                    print("$%#: ", area_id, seed_id, delete_id, active_id)
-                    print(n_act_n)
-
-                    actual_delete_id = len(np.unique(neurons_to_silence))
-
                     avg_firing_rates[area_id, seed_id, delete_id, active_id, 0] = avg_fr
-                    avg_firing_rates[
-                        area_id, seed_id, delete_id, active_id, 1
-                    ] = avg_firing_rate_not_in_assembly
+                    avg_firing_rates[area_id, seed_id, delete_id, active_id, 1] = (
+                        avg_firing_rate_not_in_assembly
+                    )
 
-                    n_active_neurons[area_id, seed_id, delete_id, active_id, 0] = n_act_n
-                    n_active_neurons[
-                        area_id, seed_id, delete_id, active_id, 1
-                    ] = n_active_neurons_not_in_assembly
+                    n_active_neurons[area_id, seed_id, delete_id, active_id, 0] = (
+                        n_act_n
+                    )
+                    n_active_neurons[area_id, seed_id, delete_id, active_id, 1] = (
+                        n_active_neurons_not_in_assembly
+                    )
 
     return [avg_firing_rates, n_active_neurons], [
         avg_firing_rates_end_of_imprint,
@@ -659,7 +597,7 @@ def multi_layer_recall(
     ]
 
 
-def get_network_for_investigation(seed=5):
+def get_network_for_investigation(seed=5, normalization_clocks=None):
     parameter_dict = {}
     parameters_for_run = {
         "runtime_imprint": 50 * second,  # 50
@@ -673,23 +611,28 @@ def get_network_for_investigation(seed=5):
     net = NetworkRecall(
         parameter_file_name="parameters",
         parameters_for_run=parameters_for_run,
-        save_file_name="association_changes",
+        save_file_name="data_Fig_7",
         parameter_dict=parameter_dict,
         only_load_results=False,
-        # new_file_to_save_to="association_changes",
+        normalization_clocks=normalization_clocks,
+        figure_name="Fig_7",
     )
 
-    return net
+    if normalization_clocks is None:
+        normalization_clocks = [area.normalization.clock for area in net.all_areas]
+
+    return net, normalization_clocks
 
 
-def get_simulated_network(net, filename_for_stored_network=None, all_assembly_ids_for_areas=None):
+def get_simulated_network(
+    net, filename_for_stored_network=None, all_assembly_ids_for_areas=None
+):
     net.parameters_for_run["all_assembly_ids_for_areas"] = all_assembly_ids_for_areas
     if "restore_from_save_name" in net.parameters_for_run:
         del net.parameters_for_run["restore_from_save_name"]
     if filename_for_stored_network is not None:
         net.parameters_for_run["restore_from_save_name"] = filename_for_stored_network
     save_dict = net.run_imprint(report_style="text", report_period=900 * second)
-    print("#####", save_dict)
     if not save_dict:
         net.show_all_saved_dictionaries()
         return None
@@ -709,15 +652,16 @@ def get_assembly_ids_and_distributions(
     result_dict,
 ):
     if net.save_dict:
-        t_0 = (
-            net.parameters_for_run["runtime_imprint"] / msecond
-            + net.parameters_for_run["runtime_baseline"] / msecond
-        ) * imprint_id
+        current_vals_a = np.copy(
+            net.parameters_for_run["all_assembly_ids_for_areas"]
+        ).tolist()
+        current_vals_b = np.copy(
+            net.parameters_for_run["all_context_ids_for_areas"]
+        ).tolist()
 
-        current_vals_a = np.copy(net.parameters_for_run["all_assembly_ids_for_areas"]).tolist()
-        current_vals_b = np.copy(net.parameters_for_run["all_context_ids_for_areas"]).tolist()
-
-        net.parameters_for_run["all_assembly_ids_for_areas"] = [[] for _ in range(imprint_id + 1)]
+        net.parameters_for_run["all_assembly_ids_for_areas"] = [
+            [] for _ in range(imprint_id + 1)
+        ]
         net.parameters_for_run["all_context_ids_for_areas"] = [
             [(0, 0)] for _ in range(imprint_id + 1)
         ]
@@ -791,7 +735,9 @@ def run_recall_for_loaded_net(
         net.parameters_for_run.update(
             {
                 "all_assembly_ids_for_areas_recall": assembly_ids_for_areas,
-                "all_context_ids_for_areas_recall": [[(0, 0)]],  # sets all contexts to 0
+                "all_context_ids_for_areas_recall": [
+                    [(0, 0)]
+                ],  # sets all contexts to 0
                 "runtime_baseline_recall": 0.1 * second,
                 "runtime_recall": runtime_recall,
                 "run_recall_after_imprint": run_recall_after_imprint,
@@ -807,7 +753,6 @@ def run_recall_for_loaded_net(
             net.parameters_for_run["assembly_size_recall"] = recall_size
             x_values.append(net.parameters_for_run["assembly_size_recall"])
 
-        # net.show_all_saved_dictionaries()
         net.run_recall(report_style="text")
 
         if not net.save_dict:
@@ -815,14 +760,6 @@ def run_recall_for_loaded_net(
 
         start_time = end_time_after_imprint + bsl
         end_time = start_time + rtm_recall
-
-        # if recall_size == 20:
-        #     net.show_spike_rasters(
-        #         show_plot=True,
-        #         highlight_neuron_ids=None,
-        #         sort_for_specific_imprint=None,
-        #         show_vertical_lines_at=[start_time, end_time],
-        #     )
 
         for area_id, area in enumerate(net.all_areas):
             active_threshold = result_dict["active_threshold"]
@@ -869,7 +806,9 @@ def process_case(
             all_assembly_ids_for_areas=[im_in],
         )
         net.network.restore(
-            filename=net.get_path_to_stored_networks(file_name=filename_for_stored_network)
+            filename=net.get_path_to_stored_networks(
+                file_name=filename_for_stored_network
+            )
         )
 
         selected_ids = get_assembly_ids_and_distributions(
@@ -888,13 +827,6 @@ def process_case(
         bsl + rtm - rtm_recall + (2 * bsl + rtm) * imprint_id
     )  # imprint_id * (2 * bsl + rtm) - rtm_recall - bsl
     end_time_after_imprint = start_time_after_imprint + rtm_recall
-
-    # net.show_spike_rasters(
-    #     show_plot=True,
-    #     highlight_neuron_ids=None,
-    #     sort_for_specific_imprint=None,
-    #     show_vertical_lines_at=[start_time_after_imprint, end_time_after_imprint],
-    # )
 
     for area_id, area in enumerate(net.all_areas):
         (
@@ -963,9 +895,6 @@ def get_key_for_result_dictionary(
     run_recall_after_imprint=None,
     firing_rate_or_n_active_neurons=None,
 ):
-    # all result types:
-    # 'recall', 'imprint', 'dendrite_distributions', 'selected_assembly_ids'
-
     if seed is None:
         raise ValueError("You need to provide the seed for the network")
 
@@ -980,7 +909,12 @@ def get_key_for_result_dictionary(
         ]
 
     if result_type == "imprint":
-        all_relevant_parameters = [seed, order_id, area_id, firing_rate_or_n_active_neurons]
+        all_relevant_parameters = [
+            seed,
+            order_id,
+            area_id,
+            firing_rate_or_n_active_neurons,
+        ]
 
     if result_type == "dendrite_distributions":
         all_relevant_parameters = [seed, input_id, area_id, order_id, imprint_id]
@@ -988,152 +922,16 @@ def get_key_for_result_dictionary(
     if result_type == "selected_assembly_ids":
         all_relevant_parameters = [seed, area_id, order_id, imprint_id]
 
-    # first we check if all relevant parameters are provided
     key = result_type
     for par in all_relevant_parameters:
         if par is None:
-            raise ValueError("You should provide information for all relevant paramters")
+            raise ValueError(
+                "You should provide information for all relevant paramters"
+            )
 
         key += f"{par}"
 
     return key
-
-
-def show_single_results_for_association_changes_the_recall(
-    seed,
-    result_dict,
-    axes=None,
-    axes_for_dendrite_distributions=None,
-    normalize_results=False,
-    show_plot=False,
-    change_firing_rate=True,
-):
-    case_id = result_dict["case_id"]
-    # title = f"CASE {case_id + 1} "
-
-    prime = "X`"
-    if case_id == 1:
-        prime = "Y`"
-
-    title = f"X & {prime}"
-
-    if axes is None:
-        fig, axes = plt.subplots(2, 4)
-    for firing_rate_n_active in [0, 1]:
-        ylabel = "avg firing rate"
-        if firing_rate_n_active:
-            ylabel = "n active"
-
-        order_colors = ["#377eb8", "#4daf4a", "#984ea3"]
-        for order_id in range(3):
-            for area_id in range(2):
-                for stim_id_recall in range(2):
-                    for run_recall_after_imprint in [True, False]:
-                        ls = "-"
-                        extra_label = ""
-                        if not run_recall_after_imprint:
-                            ls = "--"
-                            extra_label = " before imprint"
-
-                        if area_id == 0 and stim_id_recall == 0:
-                            if order_id == 0:
-                                label = f"First X then {prime}" + extra_label
-                            if order_id == 1:
-                                label = f"First {prime} then X" + extra_label
-                            if order_id == 2:
-                                label = "simultaneous" + extra_label
-                        else:
-                            label = None
-
-                        if change_firing_rate:
-                            x_values = result_dict["x_values_firing_rate"]
-                        else:
-                            x_values = result_dict["x_values_n_active"]
-                        res = []
-                        for recall_or_imprint in ["recall", "imprint"]:
-                            key = get_key_for_result_dictionary(
-                                seed=seed,
-                                stimulus_id_recall=stim_id_recall,
-                                run_recall_after_imprint=run_recall_after_imprint,
-                                area_id=area_id,
-                                firing_rate_or_n_active_neurons=firing_rate_n_active,
-                                order_id=order_id,
-                                result_type=recall_or_imprint,
-                            )
-
-                            try:
-                                res.append(result_dict[key])
-                                if order_id == 2:
-                                    print("##$", result_dict[key])
-                            except KeyError:
-                                print(
-                                    "fdkslakdlas", order_id, stim_id_recall, run_recall_after_imprint
-                                )
-                                res.append([float("nan") for _ in x_values])
-
-                        y_values = res[0]
-                        if normalize_results:
-                            y_values = np.array(y_values) / res[1]
-
-                        ax = axes[stim_id_recall, area_id + 2 * firing_rate_n_active]
-                        ax.plot(
-                            x_values,
-                            y_values,
-                            color=order_colors[order_id],
-                            label=label,
-                            ls=ls,
-                        )
-
-                        if stim_id_recall == 0:
-                            new_title = title + " >> Recall in X"
-                        if stim_id_recall == 1:
-                            new_title = title + f" >> Recall in {prime}"
-
-                        if area_id == 0:
-                            new_title += " [in Area Y]"
-                        if area_id == 1:
-                            new_title += " [in Area Z]"
-
-                        if normalize_results:
-                            new_title += " (normalized)"
-                        ax.set(
-                            title=new_title,
-                            xlabel="Firing rate",
-                            ylabel=ylabel,
-                        )
-
-                        if not normalize_results:
-                            ax.axhline(
-                                y=res[1],
-                                ls="--",
-                                lw=0.5,
-                                color=order_colors[order_id],
-                            )
-                        else:
-                            ax.set(ylim=[-0.05, 1.05])
-
-        for ax in axes.flatten():
-            ax.legend()
-
-    # if axes is None:
-    #     if not show_results:
-    #         return n_of_inputs_that_target_selected_ids
-    #     fig, axes = plt.subplots(2, 2)
-    # for area_id in range(2):
-    #     for kk in range(2):
-    #         axes[area_id, kk].hist(
-    #             n_of_inputs_that_target_selected_ids[area_id][kk], bins=np.arange(0, 15) - 0.5
-    #         )
-
-    #         axes[area_id, kk].set(ylabel="counts", xlabel="n inputs")
-
-    # axes[0, 0].set_title(f"Order {order_id} - In 1 (A)")
-    # axes[0, 1].set_title(f"Order {order_id} - In 2 (A)")
-    # axes[1, 0].set_title(f"Order {order_id} - In from A (B)")
-    # axes[1, 1].set_title(f"Order {order_id} - In 2 (B)")
-
-    if show_plot:
-        plt.show()
 
 
 def how_does_association_change_the_recall(
@@ -1143,11 +941,12 @@ def how_does_association_change_the_recall(
     only_load_results=False,
     only_run_imprint=False,
     result_dict=None,
+    normalization_clocks=None,
 ):
-    print(f"CREATE NETWORK {seed, change_firing_rate, only_run_imprint}")
-
     if net is None:
-        net = get_network_for_investigation(seed=seed)
+        net, normalization_clocks = get_network_for_investigation(
+            seed=seed, normalization_clocks=normalization_clocks
+        )
     else:
         net.parameters_for_run["seed"] = seed
     net.only_load_results = only_load_results
@@ -1167,21 +966,17 @@ def how_does_association_change_the_recall(
             only_run_imprint=only_run_imprint,
         )
 
-    return
+    return normalization_clocks
 
 
-def look_at_dendrite_statistics_within_assembly(net, selected_ids_A, selected_ids_B, order_id):
-    # we now want to look at the statistics of how many highly active
-    # arrived at the dendrites
-
-    # Area A - 1
-
+def look_at_dendrite_statistics_within_assembly(
+    net, selected_ids_A, selected_ids_B, order_id
+):
     subset_ids_for_a1 = []
     subset_ids_for_a2 = []
     subset_ids_for_b2 = []
 
     for assembly_ids in net.parameters_for_run["all_assembly_ids_for_areas"][0]:
-        print(assembly_ids)
         if assembly_ids[0] == 0 and assembly_ids[1] >= 0:
             subset_ids_for_a1 = [ii + (assembly_ids[1] * 20) for ii in range(20)]
         if assembly_ids[0] == 0 and assembly_ids[2] >= 0:
@@ -1189,14 +984,13 @@ def look_at_dendrite_statistics_within_assembly(net, selected_ids_A, selected_id
         if assembly_ids[0] == 1 and assembly_ids[2] >= 0:
             subset_ids_for_b2 = [ii + (assembly_ids[2] * 20) for ii in range(20)]
 
-    input_subsets = [[subset_ids_for_a1, subset_ids_for_a2], [selected_ids_A, subset_ids_for_b2]]
+    input_subsets = [
+        [subset_ids_for_a1, subset_ids_for_a2],
+        [selected_ids_A, subset_ids_for_b2],
+    ]
 
     n_of_inputs_that_target_selected_ids = [[[], []], [[], []]]
     targeted_neurons = [selected_ids_A, selected_ids_B]
-
-    print(subset_ids_for_a1)
-    print(subset_ids_for_a2)
-    print(subset_ids_for_b2)
 
     for area_id in range(2):
         area = net.all_areas[area_id]
@@ -1209,19 +1003,25 @@ def look_at_dendrite_statistics_within_assembly(net, selected_ids_A, selected_id
                         syn_ids_that_target_dendrite = np.where(
                             area.input_synapses[input_id].j[:] == dend_id
                         )[0]
-                        input_neurons_that_target_dendrite = area.input_synapses[input_id].i[
-                            syn_ids_that_target_dendrite
-                        ]
+                        input_neurons_that_target_dendrite = area.input_synapses[
+                            input_id
+                        ].i[syn_ids_that_target_dendrite]
 
-                        n_of_inputs_that_target_selected_ids[area_id][input_id].append(0)
+                        n_of_inputs_that_target_selected_ids[area_id][input_id].append(
+                            0
+                        )
                         for n_id in input_neurons_that_target_dendrite:
                             if n_id in input_subsets[area_id][input_id]:
-                                n_of_inputs_that_target_selected_ids[area_id][input_id][-1] += 1
+                                n_of_inputs_that_target_selected_ids[area_id][input_id][
+                                    -1
+                                ] += 1
 
     return n_of_inputs_that_target_selected_ids
 
 
-def run_how_does_association_change_the_recall_on_server(max_cores=2, get_seeds=False, case_id=0):
+def run_how_does_association_change_the_recall_on_server(
+    max_cores=2, get_seeds=False, case_id=0
+):
     result_dict = setup_result_dict(case_id=case_id)
     result_dict["all_recall_sizes"] = [20]
     all_seeds = [
@@ -1251,10 +1051,8 @@ def run_how_does_association_change_the_recall_on_server(max_cores=2, get_seeds=
 
     params = []
 
-    # iterate over seed
     change_firing_rate = True
     only_load_results = False
-    # iterate over case_id
     only_run_imprint = True
 
     for seed in all_seeds:
@@ -1289,7 +1087,6 @@ def run_how_does_association_change_the_recall_on_server(max_cores=2, get_seeds=
                 )
             )
 
-    print(len(params))
     n_cores = np.min([len(params), max_cores])
     with Pool(n_cores) as pool:
         _ = pool.starmap(
@@ -1338,4 +1135,4 @@ def setup_result_dict(case_id):
 
 
 if __name__ == "__main__":
-    paper_figure_6(only_load_results=True)
+    Fig_7(only_load_results=True)

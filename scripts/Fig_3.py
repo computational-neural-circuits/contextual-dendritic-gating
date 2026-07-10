@@ -1,30 +1,23 @@
 from brian2.units import *
 import numpy as np
 
-from src.network_multiple_contexts_over_time_with_association import (
-    NetworMultipleContextsOverTimeWithAssociation,
-)
 from src.network_recall import (
     NetworkRecall,
 )
 from src.network_single_imprint import (
     NetworkSingleImprint,
 )
-from src.network_multiple_contexts_multiple_assemblies import (
-    NetworkMultipleContextsMultipleAssemblies,
-)
 from src.get_activity_metrics import get_activity_metrics_from_assembly_neurons
-from src.utils import get_firing_rate_for_single_neuron, get_assembly_neuron_ids_by_weight_and_rate
+from src.utils import get_path_to_save_file_name
 
+from Fig_S3 import load_recurrent_inhibition_comparison
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.colorbar import ColorbarBase
-import math
 from multiprocessing import Pool
-from collections import Counter
 
-plt.style.use("../../plots_style.txt")
+plt.style.use("../plots_style.txt")
 
 parameter_dict = {}
 
@@ -37,33 +30,31 @@ parameters_for_run = {
     "monitor_dt_weights": 100 * ms,
 }
 
+FIGURE_NAME = "Fig_3"
 
-def paper_figure_3(only_load_results=True):
+
+def Fig_3(only_load_results=True, axes_for_currents_and_dendrites=None):
     (
         fig,
         axes_normalization_weights_over_time,
-        axes_weight_matrix_norm_no_norm,
+        ax_weights_norm_firing_rate,
         ax_weights_norm_soma_weights,
         ax_input_spikes_1,
-        ax_input_spikes_2,
         ax_recurrent_spikes,
-        ax_recurrent_spikes,
-        axes_for_large_imprint,
+        ax_weights_large_imprint,
         ax_for_theoretical_imprint_limit,
         ax_recall_example_firing_rate,
         ax_recall_example_n_active,
         ax_recall_example_colorbar,
-        ax_recall_example_firing_rate_over_time,
-        ax_recall_example_n_active_over_time,
         ax_recall_projection_fr,
         ax_recall_projection_na,
-        ax_recall_association_fr,
-        ax_recall_association_na,
     ) = create_figure_layout_paper_fig_3()
 
     ########################
     # Single FF imprit (start)
     #######################
+
+    normalization_clocks = None
 
     networks = {}
 
@@ -80,32 +71,39 @@ def paper_figure_3(only_load_results=True):
         net = NetworkSingleImprint(
             parameter_file_name="parameters",
             parameters_for_run=parameters_for_run,
-            save_file_name="run_single_imprint",
+            save_file_name="data_Fig_3_single_imprint",
             parameter_dict=parameter_dict,
             only_load_results=False,
+            figure_name=FIGURE_NAME,
         )
 
         net.only_load_results = only_load_results
         net.run(report_style="text")
         networks[normalization] = net
 
+    if axes_for_currents_and_dendrites is not None:
+        get_dendritic_current_mean_and_std(
+            networks["normalization"],
+            use_non_gated=True,
+            axes_for_currents_and_dendrites=axes_for_currents_and_dendrites,
+        )
+
+    normalization_clocks = [networks["normalization"].area.normalization.clock]
     # show spikes
     networks["normalization"].show_spike_rasters(
         show_plot=False,
-        axes=np.array([ax_input_spikes_1, ax_input_spikes_2, ax_recurrent_spikes]),
+        axes=np.array([ax_input_spikes_1, None, ax_recurrent_spikes]),
         show_range=show_range,
     )
 
-    for ii in range(2):
-        ax = axes_weight_matrix_norm_no_norm[ii]
-        show_weight_matrix_sorted(
-            networks["normalization"],
-            ax=ax,
-            sort_by_firing_rate_or_strongest_avg_weight=(ii == 0),
-        )
-        ax.set_title("Normalized: sorted by firing rate and weights")
-        if ii == 1:
-            ax.set_title("Normalized: sorted by strongest avg weight")
+    show_weight_matrix_sorted(
+        networks["normalization"],
+        ax=ax_weights_norm_firing_rate,
+        sort_by_firing_rate_or_strongest_avg_weight=True,
+    )
+    ax_weights_norm_firing_rate.set_title(
+        "Normalized: sorted by firing rate and weights"
+    )
 
     show_weight_matrix_sorted(
         net=networks["normalization"],
@@ -124,11 +122,44 @@ def paper_figure_3(only_load_results=True):
             set_ylim=normalization == "no normalization",
         )
 
+    if axes_for_currents_and_dendrites is not None:
+        ## we want to quantify the currents in comparison of feedforward vs recurrent.
+        ## therefore we need the neurons that become part of the assembly and track the
+        ## currents in the gated dendrites. We want to compare before and after
+
+        _, assembly_neuron_ids = networks["normalization"].sort_neurons_by_firing_rate(
+            shuffle_rest=False
+        )
+        parameters_for_run["normalize"] = True
+        parameters_for_run["monitor_currents"] = True
+        print("Assembly ids: ", assembly_neuron_ids, type(assembly_neuron_ids))
+        parameters_for_run["assembly_ids_for_monitoring_currents"] = [
+            int(ii) for ii in assembly_neuron_ids
+        ]
+        parameters_for_run["context_id_for_monitoring_currents"] = 0
+        net = NetworkSingleImprint(
+            parameter_file_name="parameters",
+            parameters_for_run=parameters_for_run,
+            save_file_name="data_Fig_S2_single_imprint_with_currents_recorded",
+            parameter_dict=parameter_dict,
+            only_load_results=False,
+        )
+        net.run(report_style="text")
+
+        analyze_dendritic_currents(
+            net_original=networks["normalization"],
+            net_with_currents=net,
+            axes=axes_for_currents_and_dendrites,
+        )
+
+        return normalization_clocks
     ########################
     # larg imprint with recall (start)
     ######################
 
-    all_seeds_for_large_imprint = run_large_imprint_with_recall_on_server(only_get_seeds=True)
+    all_seeds_for_large_imprint = run_large_imprint_with_recall_on_server(
+        only_get_seeds=True
+    )
 
     all_assembly_ids_for_areas = [[(0, ii, -1)] for ii in range(20)]
     parameters_for_run_large_imprint = {
@@ -143,17 +174,24 @@ def paper_figure_3(only_load_results=True):
     net = NetworkRecall(
         parameter_file_name="parameters",
         parameters_for_run=parameters_for_run_large_imprint,
-        save_file_name="recall_results_large_imprint_paper_figure_3",
+        save_file_name="data_Fig_3_large_imprint",
         parameter_dict=parameter_dict,
         only_load_results=False,
+        normalization_clocks=normalization_clocks,
+        figure_name=FIGURE_NAME,
     )
     net.only_load_results = only_load_results
 
     # [ 24, 612]
-    all_n_neurons_in_assemblies = np.zeros((len(all_seeds_for_large_imprint), 21))
-
     all_origial_assembly_sizes = []
     all_firing_rates_after_imprint = []
+
+    recall_export_keys = ["bck", "same_ctxt", "diff_ctxt"]
+    recall_export = [{}, {}]
+    for ii in range(2):
+        for key in recall_export_keys:
+            recall_export[ii][key] = []
+
     for seed_id, seed in enumerate(all_seeds_for_large_imprint):
         net.parameters_for_run["seed"] = seed
         (
@@ -166,17 +204,22 @@ def paper_figure_3(only_load_results=True):
             net=net,
         )
 
-        all_origial_assembly_sizes += [len(xx) for xx in original_assembly_ids_for_all_imprints]
+        all_origial_assembly_sizes += [
+            len(xx) for xx in original_assembly_ids_for_all_imprints
+        ]
         all_firing_rates_after_imprint += firing_rate_of_assemblies_after_imprint
+
+        for pp, values in enumerate([recall_firing, recall_active]):
+            for imprint_id, entries in enumerate(values):
+                for key_id, key in enumerate(recall_export_keys):
+                    recall_export[pp][key].append([seed, imprint_id, entries[key_id]])
 
         label = None
         if seed_id == 0:
-            net.show_spike_rasters(axes=axes_for_large_imprint)
-            label = "different networks"
-
             net.show_weight_matrix(
                 show_plot=False,
-                matlab_export_name=f"../../results/figures/figure_weights/paper_figure_3_for_example_imprint_D",
+                matlab_export_name=get_path_to_save_file_name("Fig_3", "weights_3C"),
+                axes_for_weights=(None, ax_weights_large_imprint),
             )
 
         show_recall_results_for_large_imprint(
@@ -199,17 +242,12 @@ def paper_figure_3(only_load_results=True):
             label=label,
         )
         y_values = assembly_sizes_for_all_imprints[:, 0]
-        print(y_values)
-        ax_recall_example_firing_rate_over_time.plot(
-            [ii + 1 for ii in range(len(y_values))],
-            y_values,
-            color="#0570b0",
-            alpha=0.2,
-            label=label,
-        )
-        ax_recall_example_firing_rate_over_time.set(
-            xlabel="# of imprint", ylabel="Assembly size of first imprint"
-        )
+
+    for ii, save_name in enumerate(["avg_fr", "n_active"]):
+        for key in recall_export_keys:
+            values = np.array(recall_export[ii][key])
+            path = get_path_to_save_file_name("Fig_3", "F_" + save_name + "_" + key)
+            np.savetxt(path, values)
 
     show_imprint_results_for_large_imprint(
         axes=[
@@ -236,8 +274,8 @@ def paper_figure_3(only_load_results=True):
     # Recall (start)
     ######################
 
-    all_network_seeds, all_network_seeds_association = run_recall_for_multiple_instances_on_server(
-        get_seeds=True
+    all_network_seeds, all_network_seeds_association = (
+        run_recall_for_multiple_instances_on_server(get_seeds=True)
     )
 
     run_recall_for_multiple_instances(
@@ -246,6 +284,7 @@ def paper_figure_3(only_load_results=True):
         run_association=False,
         only_load_results=True,
         all_network_seeds=all_network_seeds,
+        normalization_clocks=normalization_clocks,
     )
     run_recall_for_multiple_instances(
         axes=ax_recall_projection_na,
@@ -253,29 +292,247 @@ def paper_figure_3(only_load_results=True):
         run_association=False,
         only_load_results=True,
         all_network_seeds=all_network_seeds,
-    )
-    run_recall_for_multiple_instances(
-        axes=ax_recall_association_fr,
-        change_firing_rate=True,
-        run_association=True,
-        only_load_results=True,
-        all_network_seeds=all_network_seeds_association,
-    )
-    run_recall_for_multiple_instances(
-        axes=ax_recall_association_na,
-        change_firing_rate=False,
-        run_association=True,
-        only_load_results=True,
-        all_network_seeds=all_network_seeds_association,
+        normalization_clocks=normalization_clocks,
     )
 
-    fig.savefig("../../results/figures/paper_fig_3.pdf", dpi=800)
+    fig.savefig("../results/figures/Fig_3.pdf", dpi=800)
+
+
+def analyze_dendritic_currents(net_original, net_with_currents, axes=None):
+
+    for key in [
+        "spikes_somas_t",
+        "spikes_somas_i",
+        "spikes_inputs_t_1",
+        "spikes_inputs_i_1",
+        "spikes_inputs_t_2",
+        "spikes_inputs_i_2",
+    ]:
+        assert np.array_equal(
+            net_original.save_dict[key], net_with_currents.save_dict[key]
+        )
+
+    print("Both runs are identical")
+
+    recorded_time = net_original.save_dict["voltage_dends_t"]
+    # in ms
+
+    NMDA_inputs = [[], []]
+    V = [[], []]
+    AMPA_inputs = [[], []]
+    for ii in range(2):
+        for nn in range(3):
+
+            key = f"iTotNMDA{nn+1}_{ii}"
+            # need to change this later to f"iTotNMDA1_{ii}"
+            NMDA_inputs[ii].append(net_with_currents.save_dict[key])
+            key = f"iDendAMPA{nn+1}_{ii}"
+            AMPA_inputs[ii].append(net_with_currents.save_dict[key])
+        key = f"V_{ii}"  # need to change to f"V_{ii]}"
+        V[ii].append(net_with_currents.save_dict[key])
+
+    NMDA_inputs = np.array(NMDA_inputs)
+    V = np.array(V)
+    AMPA_inputs = np.array(AMPA_inputs)
+
+    print(NMDA_inputs.shape)
+    print(AMPA_inputs.shape)
+    print(V.shape)
+    print(recorded_time.shape)
+
+    if axes is None:
+        fig, axes = plt.subplots(2)
+        ax1, ax2 = axes.flatten()
+    else:
+        _, _, ax1, ax2 = axes
+
+    runtime_baseline = net_with_currents.parameters_for_run["runtime_baseline"]
+    runtime_imprint = net_with_currents.parameters_for_run["runtime_imprint"]
+
+    eval_time = 2 * second
+
+    start_id_baseline = 0
+    end_id_baseline = np.argmax(recorded_time > eval_time / ms)
+
+    start_id_ff_before = np.argmax(recorded_time > runtime_baseline / ms)
+    end_id_ff_before = np.argmax(recorded_time > (runtime_baseline + eval_time) / ms)
+
+    start_id_ff_after = np.argmax(
+        recorded_time > (runtime_baseline + runtime_imprint - eval_time) / ms
+    )
+    end_id_ff_after = len(recorded_time)
+
+    print(start_id_baseline, end_id_baseline)
+    print(start_id_ff_before, end_id_ff_before)
+    print(start_id_ff_after, end_id_ff_after)
+
+    np.random.seed(0)
+    x_noise = 0.5 * (0.5 - np.random.rand(NMDA_inputs.shape[2]))
+
+    colors = ["#377eb8", "#e41a1c"]
+    labels = ["assembly neurons", "non-assembly neurons"]
+
+    for ii, name in enumerate([["assembly neurons"], ["non-assembly neurons"]]):
+
+        NMDA = NMDA_inputs[ii]
+        AMPA = AMPA_inputs[ii]
+
+        NMDA_recurrent = NMDA[0]
+        NMDA_ff = NMDA[1] + NMDA[2]
+
+        AMPA_recurrent = AMPA[0]
+        AMPA_ff = AMPA[1] + AMPA[2]
+
+        for counter, (start_id, end_id) in enumerate(
+            zip(
+                [start_id_baseline, start_id_ff_before, start_id_ff_after],
+                [end_id_baseline, end_id_ff_before, end_id_ff_after],
+            )
+        ):
+
+            for shift, values in enumerate(
+                [NMDA_recurrent, NMDA_ff, AMPA_recurrent, AMPA_ff]
+            ):
+                y = np.mean(values[:, start_id:end_id], axis=1)
+                x = counter * 10 + ii + shift * 2
+                label = None
+                if counter == 0 and shift == 0:
+                    label = labels[ii]
+                ax1.scatter(x + x_noise, y, color=colors[ii], alpha=0.5, label=label)
+                ax1.scatter(x, np.mean(y), color=colors[ii], marker="P")
+
+    ax1.set(
+        xticks=[0.5, 2.5, 4.5, 6.5, 10.5, 12.5, 14.5, 16.5, 20.5, 22.5, 24.5, 26.5],
+        xticklabels=["NMDA rec", "NMDA ff", "AMPA rec", "AMPA ff"] * 3,
+        ylabel="Dendric input currents",
+    )
+    ax1.legend()
+
+    # get all weights for the dendrites
+    _, assembly_neuron_ids = net_original.sort_neurons_by_firing_rate(
+        shuffle_rest=False
+    )
+
+    print(
+        net_original.save_dict["weights"].shape,
+        net_original.save_dict["weights_ff_1"].shape,
+        net_original.save_dict["weights_ff_2"].shape,
+    )
+
+    weights_rec = net_original.save_dict["weights"]
+    weights_ff = net_original.save_dict["weights_ff_1"]
+
+    syn_rec = net_original.area.synapses_E
+    synapses_from_assembly_neurons = []
+    for neuron_id in assembly_neuron_ids:
+        synapse_ids_pre = np.where((syn_rec.i)[:] == neuron_id)[0]
+
+        synapses_from_assembly_neurons += list(synapse_ids_pre)
+
+    np.random.seed(12)
+
+    recurrent_within = []
+    recurrent_from_outside = []
+    ff_source = []
+    ff_non_source = []
+
+    for ii, neuron_id in enumerate(assembly_neuron_ids):
+
+        dummy_ids = [kk for kk in assembly_neuron_ids if kk != neuron_id]
+
+        label = None
+        if ii == 0:
+            label = "Recurrent weights (assembly neurons)"
+
+        weights = weights_rec[dummy_ids, neuron_id * 6]
+        recurrent_within += list(weights.flatten())
+
+        ax2.scatter(
+            [ii + (np.random.rand() - 0.5) * 0.5 for _ in dummy_ids],
+            weights,
+            color="r",
+            alpha=0.5,
+            label=label,
+        )
+        ax2.scatter(
+            [len(assembly_neuron_ids) + (np.random.rand() - 0.5) * 0.5],
+            np.mean(weights_rec[dummy_ids, neuron_id * 6]),
+            color="r",
+        )
+
+        if ii == 0:
+            label = f"Recurrent weights ({len(assembly_neuron_ids)} random non-assembly neurons)"
+
+        non_assembly = ([mm for mm in range(400) if mm not in assembly_neuron_ids])[
+            : len(assembly_neuron_ids)
+        ]
+        weights = weights_rec[non_assembly, neuron_id * 6]
+        recurrent_from_outside += list(weights.flatten())
+
+        ax2.scatter(
+            [ii + (np.random.rand() - 0.5) * 0.5 for _ in non_assembly],
+            weights,
+            color="b",
+            alpha=0.5,
+            label=label,
+        )
+        ax2.scatter(
+            [len(assembly_neuron_ids) + (np.random.rand() - 0.5) * 0.5],
+            np.mean(weights_rec[non_assembly, neuron_id * 6]),
+            color="b",
+        )
+
+        if ii == 0:
+            label = "FF weight from active units"
+
+        weights = weights_ff[[mm for mm in range(20)], neuron_id * 6]
+        ff_source += list(weights.flatten())
+        ax2.scatter(
+            [ii + (np.random.rand() - 0.5) * 0.5 for _ in range(20)],
+            weights,
+            color="k",
+            alpha=0.5,
+            label=label,
+        )
+        ax2.scatter(
+            [len(assembly_neuron_ids) + (np.random.rand() - 0.5) * 0.5],
+            np.mean(weights_ff[[mm for mm in range(20)], neuron_id * 6]),
+            color="k",
+            alpha=0.5,
+        )
+
+        if ii == 0:
+            label = "FF weight from 20 random non-active units"
+
+        non_active = [mm for mm in range(20, 40)]
+        weights = weights_ff[non_active, neuron_id * 6]
+        ff_non_source += list(weights.flatten())
+        ax2.scatter(
+            [ii + (np.random.rand() - 0.5) * 0.5 for _ in range(20)],
+            weights,
+            color="g",
+            alpha=0.5,
+            label=label,
+        )
+        ax2.scatter(
+            [len(assembly_neuron_ids) + (np.random.rand() - 0.5) * 0.5],
+            np.mean(weights_ff[non_active, neuron_id * 6]),
+            color="g",
+            alpha=0.5,
+        )
+
+    ax2.legend()
+    ax2.set(
+        xlabel="Weights from assembly neurons or acrive pre-units to gated assembly dendrite\n(Last one is avg of weights for each dendrite)",
+        ylabel="Weight",
+    )
 
 
 def run_large_imprint_with_recall(
     net,
     all_context_ids_for_areas_recall=[[(0, 0)], [(0, 1)]],
     recall_area_id=0,
+    recall_after_imprint_id=None,
 ):
     net.run_imprint(
         report_style="text",
@@ -290,8 +547,17 @@ def run_large_imprint_with_recall(
     original_assembly_ids_for_all_imprints = []
     firing_rate_of_assemblies_after_imprint = []
     for ii in range(n_imprints):
-        network_filename = net.save_dict["filename_for_stored_network"].decode("utf-8") + f"_{ii}"
-        net.network.restore(filename=net.get_path_to_stored_networks(file_name=network_filename))
+        if recall_after_imprint_id is not None:
+            if ii != recall_after_imprint_id:
+                original_assembly_ids_for_all_imprints.append([])
+                firing_rate_of_assemblies_after_imprint.append([])
+                continue
+
+        network_filename = (
+            net.save_dict["filename_for_stored_network"].decode("utf-8") + f"_{ii}"
+        )
+        filename = net.get_path_to_stored_networks(file_name=network_filename)
+        net.network.restore(filename=filename)
         _, all_assembly_ids, _, all_rates_of_imprint = net.sort_neurons_by_firing_rate(
             area_name="A", return_rates_for_imprint=ii
         )
@@ -301,74 +567,115 @@ def run_large_imprint_with_recall(
                 break
             assembly_sizes_for_all_imprints[ii, jj] = len(all_assembly_ids[jj])
 
-        print("^^^", assembly_sizes_for_all_imprints[ii])
         original_assembly_ids_for_all_imprints.append(all_assembly_ids[ii])
         firing_rate_of_assemblies_after_imprint.append(
             np.mean(all_rates_of_imprint[all_assembly_ids[ii]])
         )
-        # net.show_spike_rasters(
-        #     show_plot=True,
-        #     highlight_neuron_ids=[[0, original_assembly_ids_for_all_imprints[0]]],
-        #     show_vertical_lines_at=[1000, 31000],
-        # )
 
     rtm = net.parameters_for_run["runtime_imprint"] / msecond
     bsl = net.parameters_for_run["runtime_baseline"] / msecond
     runtime_recall = 2 * second
     rtm_rec = runtime_recall / msecond
 
-    recall_firing = np.zeros((n_imprints, 1 + len(all_context_ids_for_areas_recall))) * float("nan")
+    all_recall_sizes = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20]
+
+    recall_firing = np.zeros(
+        (n_imprints, 1 + len(all_context_ids_for_areas_recall), len(all_recall_sizes))
+    ) * float("nan")
     recall_active = np.zeros_like(recall_firing) * float("nan")
-    for context_id, context_ids_for_areas in enumerate(all_context_ids_for_areas_recall):
+
+    for context_id, context_ids_for_areas in enumerate(
+        all_context_ids_for_areas_recall
+    ):
         for imprint_id, assembly_ids_for_areas in enumerate(all_assembly_ids_for_areas):
-            net.parameters_for_run.update(
-                {
-                    "all_assembly_ids_for_areas_recall": [assembly_ids_for_areas],
-                    "all_context_ids_for_areas_recall": [context_ids_for_areas],
-                    "runtime_baseline_recall": 0.1 * second,
-                    "runtime_recall": runtime_recall,
-                    "run_recall_after_imprint": True,
-                    "recall_after_imprint_id": 19,
-                }
-            )
-            net.run_recall(report_style="text")
 
-            if not net.save_dict:
-                continue
+            for size_id, assembly_size_recall in enumerate(all_recall_sizes):
 
-            start_time = bsl + len(all_assembly_ids_for_areas) * (bsl + rtm)
-            end_time = start_time + rtm_rec
-            (
-                avg_firing_rate_recall,
-                n_active_neurons_recall,
-                avg_firing_rate_recall_bck,
-                n_active_neurons_recall_bck,
-            ) = get_activity_metrics_from_assembly_neurons(
-                active_threshold=4,
-                net=net,
-                area=net.all_areas[recall_area_id],
-                selected_ids=original_assembly_ids_for_all_imprints[imprint_id],
-                start_time=start_time,
-                end_time=end_time,
-                select_randomly_for_background=True,
-            )
+                net.parameters_for_run.update(
+                    {
+                        "all_assembly_ids_for_areas_recall": [assembly_ids_for_areas],
+                        "all_context_ids_for_areas_recall": [context_ids_for_areas],
+                        "runtime_baseline_recall": 0.1 * second,
+                        "runtime_recall": runtime_recall,
+                        "run_recall_after_imprint": True,
+                        "recall_after_imprint_id": 19,
+                    }
+                )
 
-            recall_firing[imprint_id, 1 + context_id] = avg_firing_rate_recall
-            recall_active[imprint_id, 1 + context_id] = n_active_neurons_recall
+                if recall_after_imprint_id is not None:
+                    if imprint_id != recall_after_imprint_id or context_id == 1:
+                        continue
+                    net.parameters_for_run["recall_after_imprint_id"] = (
+                        recall_after_imprint_id
+                    )
+                    net.parameters_for_run["assembly_size_recall"] = (
+                        assembly_size_recall
+                    )
 
-            if context_id == 0:
-                recall_firing[imprint_id, 0] = avg_firing_rate_recall_bck
-                recall_active[imprint_id, 0] = n_active_neurons_recall_bck
+                else:
+                    if assembly_size_recall != 20:
+                        continue
 
-    return (
-        recall_firing,
-        recall_active,
-        assembly_sizes_for_all_imprints,
-        original_assembly_ids_for_all_imprints,
-        firing_rate_of_assemblies_after_imprint,
-    )
+                if assembly_size_recall == 20:
+                    if "assembly_size_recall" in net.parameters_for_run:
+                        del net.parameters_for_run["assembly_size_recall"]
 
-    return n_neurons_in_assemblies
+                net.run_recall(report_style="text")
+
+                if not net.save_dict:
+                    continue
+
+                factor = len(all_assembly_ids_for_areas)
+                if recall_after_imprint_id is not None:
+                    factor = recall_after_imprint_id + 1
+
+                start_time = bsl + factor * (bsl + rtm)
+                end_time = start_time + rtm_rec
+
+                (
+                    avg_firing_rate_recall,
+                    n_active_neurons_recall,
+                    avg_firing_rate_recall_bck,
+                    n_active_neurons_recall_bck,
+                ) = get_activity_metrics_from_assembly_neurons(
+                    active_threshold=4,
+                    net=net,
+                    area=net.all_areas[recall_area_id],
+                    selected_ids=original_assembly_ids_for_all_imprints[imprint_id],
+                    start_time=start_time,
+                    end_time=end_time,
+                    select_randomly_for_background=True,
+                )
+
+                recall_firing[imprint_id, 1 + context_id, size_id] = (
+                    avg_firing_rate_recall
+                )
+                recall_active[imprint_id, 1 + context_id, size_id] = (
+                    n_active_neurons_recall
+                )
+
+                if context_id == 0:
+                    recall_firing[imprint_id, 0, size_id] = avg_firing_rate_recall_bck
+                    recall_active[imprint_id, 0, size_id] = n_active_neurons_recall_bck
+
+    if recall_after_imprint_id is None:
+
+        return (
+            recall_firing[:, :, -1],
+            recall_active[:, :, -1],
+            assembly_sizes_for_all_imprints,
+            original_assembly_ids_for_all_imprints,
+            firing_rate_of_assemblies_after_imprint,
+        )
+    else:
+
+        return (
+            recall_firing,
+            recall_active,
+            assembly_sizes_for_all_imprints,
+            original_assembly_ids_for_all_imprints,
+            firing_rate_of_assemblies_after_imprint,
+        )
 
 
 def run_large_imprint_with_recall_on_server(max_cores=80, only_get_seeds=False):
@@ -540,113 +847,9 @@ def run_recall_for_multiple_instances_on_server(max_cores=200, get_seeds=False):
         )
 
 
-def feedforward_plasticity(
-    net, axes=None, show_plot=False, random_samples=0, show_range=[2000, 32000], max_pre_id=None
+def plot_norm_vs_no_norm(
+    net, ax, label, random_samples=0, show_range=[2000, 12000], set_ylim=False
 ):
-    if axes is None:
-        fig, axes = plt.subplots(1, 3)
-
-    ax1, ax2, ax3 = axes
-
-    _, assembly_neuron_ids = net.sort_neurons_by_firing_rate(shuffle_rest=False)
-
-    pot_pot = list(net.potenitially_potentiated_dendrites)
-
-    active_synapses = []
-    non_active_synapses = []
-    for neuron_id in assembly_neuron_ids:
-        dendrite_id = net.area.params["n_dend_each"] * neuron_id
-
-        all_weight_ids = np.where((net.area.input_synapses[0].j)[:] == dendrite_id)[0]
-        all_source_ids = net.area.input_synapses[0].i[all_weight_ids]
-        all_weights_at_that_dendrite = net.save_dict[
-            f"weight_w_ff_1_{pot_pot.index(dendrite_id)}_pot_pot"
-        ]
-
-        for source, weight in zip(all_source_ids, all_weights_at_that_dendrite):
-            if source < net.area.params["assembly_size"]:
-                active_synapses.append(weight)
-            else:
-                if len(non_active_synapses) < len(
-                    active_synapses
-                ):  # this ensures the same number in both groups
-                    non_active_synapses.append(weight)
-    plot_time = net.save_dict["voltage_weights_t"]
-
-    for weight, label, color in zip(
-        [active_synapses, non_active_synapses],
-        [
-            f"high pre activity ({net.area.params['assembly_firing_rate']})",
-            f"low pre activity ({net.area.params['ff_bck']})",
-        ],
-        ["#1f78b4", "#33a02c"],
-    ):
-        if random_samples == 0:
-            ax1.plot(
-                plot_time,
-                np.mean(weight, axis=0)[:],
-                label=label,
-            )
-
-        else:
-            np.random.seed(5)
-            samples = np.random.choice(len(weight), size=random_samples, replace=False)
-
-            this_label = label
-            for sp in samples:
-                ax1.plot(plot_time, weight[sp][:], color=color, alpha=0.4, label=label)
-                label = None
-
-    ax1.set(xlabel="Time in ms", ylabel="avg. weight ff", xlim=show_range)
-    ax1.legend()
-
-    weights_ff_1 = net.save_dict["weights_ff_1"]
-    weights_ff_2 = net.save_dict["weights_ff_2"]
-    weights_ff = np.vstack([net.save_dict["weights_ff_1"], net.save_dict["weights_ff_2"]])
-    weights_ff_pre = np.copy(weights_ff)
-    weights_ff_pre[weights_ff != 0] = net.area.params["ff_w"]
-
-    sorted_neuron_ids, _ = net.sort_neurons_by_firing_rate(shuffle_rest=False)
-    sorted_neuron_ids = sorted_neuron_ids[0][::-1]
-    sorted_dendrite_ids = []
-
-    # resorted_weights = np.zeros_like(weights_loaded_recurrent)
-
-    for nn in range(400):
-        # for mm in range(net.parameters["n_dend_each"]):
-        sorted_dendrite_ids += [
-            ii + net.parameters["n_dend_each"] * sorted_neuron_ids[nn]
-            for ii in range(net.parameters["n_dend_each"])
-        ]
-
-    y_max = 180
-
-    if max_pre_id is None:
-        max_pre_id = net.parameters["n_somas"] * 2
-
-    for ww, ax in zip([weights_ff_pre, weights_ff], [ax2, ax3]):
-        weights = ww[np.ix_([ii for ii in range(max_pre_id)], sorted_dendrite_ids[:y_max])]
-        im = ax.imshow(
-            weights.T,
-            cmap="Greys",
-            origin="lower",
-            extent=[-0.5, max_pre_id - 0.5, -0.5, y_max - 0.5],
-            vmin=0,
-            vmax=net.parameters["w_max_ff"],
-        )
-        yticks = [ii for ii in range(y_max) if ii % net.parameters["n_dend_each"] == 0]
-        ax.set(
-            aspect=max_pre_id / y_max,
-            xlabel="presynaptic soma\n(sorted by firing rate)",
-            ylabel="postsynaptic dendrite\n(sorted by firing rate)",
-            yticks=yticks,
-            yticklabels=[ii if ii % 18 == 0 else None for ii in yticks],
-        )
-    if show_plot:
-        plt.show()
-
-
-def plot_norm_vs_no_norm(net, ax, label, random_samples=0, show_range=[2000, 12000], set_ylim=False):
     pot_pot = net.potenitially_potentiated_dendrites
 
     cat_1 = []  # gated and at least four inputs from within assembly
@@ -683,7 +886,9 @@ def plot_norm_vs_no_norm(net, ax, label, random_samples=0, show_range=[2000, 120
 
     plot_time = net.save_dict["voltage_weights_t"]
 
-    for ii, (cat, name, color) in enumerate(zip([cat_1, cat_2, cat_3, cat_4], names, colors)):
+    for ii, (cat, name, color) in enumerate(
+        zip([cat_1, cat_2, cat_3, cat_4], names, colors)
+    ):
         # randomly sample x synapses
         ls = "-"
         if label == "no normalization":
@@ -727,7 +932,9 @@ def show_weight_matrix_sorted(
     # sorted_neuron_ids, _ = net.sort_neurons_by_firing_rate(shuffle_rest=False)
 
     if sort_by_firing_rate_or_strongest_avg_weight == False:
-        weight_sums_input = np.sum(weights_loaded_recurrent[:, ::6], 0)
+        weight_sums_input = np.sum(
+            weights_loaded_recurrent[:, :: net.parameters["n_dend_each"]], 0
+        )
         sorted_neuron_ids_by_inputs = np.argsort(weight_sums_input)[::-1]
         # now we select the first X neurons that receive the strongest inputs
         threshold_id = np.argmax(
@@ -736,7 +943,9 @@ def show_weight_matrix_sorted(
         )
         selected_ids = sorted_neuron_ids_by_inputs[:threshold_id]
 
-        sorted_neuron_ids_by_outputs = list(np.argsort(np.sum(weights_loaded_recurrent, 1)))[::-1]
+        sorted_neuron_ids_by_outputs = list(
+            np.argsort(np.sum(weights_loaded_recurrent, 1))
+        )[::-1]
 
         sorted_neuron_ids = list(selected_ids) + [
             n_id for n_id in sorted_neuron_ids_by_outputs if n_id not in selected_ids
@@ -745,11 +954,9 @@ def show_weight_matrix_sorted(
         sorted_neuron_ids, _ = net.sort_neurons_by_firing_rate(shuffle_rest=False)
         sorted_neuron_ids = sorted_neuron_ids  # we only look at one context
 
-    print("#####", sorted_neuron_ids)
     sorted_dendrite_ids = []
 
     for nn in range(take_first_x_neurons):
-        # for mm in range(net.parameters["n_dend_each"]):
         sorted_dendrite_ids += [
             ii + net.parameters["n_dend_each"] * sorted_neuron_ids[nn]
             for ii in range(net.parameters["n_dend_each"])
@@ -760,18 +967,17 @@ def show_weight_matrix_sorted(
     ylabel = "postsynaptic dendrite\n(sorted)"
 
     if show_neuron_matrix:
-        weights = weights_loaded_recurrent[:, ::6]
+        weights = weights_loaded_recurrent[:, :: net.parameters["n_dend_each"]]
         weights = weights[np.ix_(sorted_neuron_ids, sorted_neuron_ids)]
         y_max = len(sorted_neuron_ids)
         ylabel = "postsynaptic soma\n(sorted)"
 
-    im = ax.imshow(
+    _ = ax.imshow(
         weights.T,
         cmap="Greys",
         origin="lower",
         extent=[-0.5, net.parameters["n_somas"] - 0.5, -0.5, y_max - 0.5],
     )
-    # ax[1].set_aspect(2)
     yticks = [ii for ii in range(y_max) if ii % net.parameters["n_dend_each"] == 0]
     ax.set(
         aspect="equal",
@@ -803,11 +1009,11 @@ def show_recall_results_for_large_imprint(axes, recall_firing, recall_active, se
         for jj in range(recall_active.shape[0]):
             xx = ii + 0.2 * (0.5 - np.random.rand())
             if ii == 1:
-                ii + 0.5
+                xx += 0.4
             axes[1].scatter(xx, recall_active[jj, ii], color=cmap(norm(jj)), s=20)
     axes[1].set(ylabel="n active")
 
-    cb = ColorbarBase(
+    _ = ColorbarBase(
         axes[2],
         cmap=cmap,
         norm=norm,
@@ -818,11 +1024,6 @@ def show_recall_results_for_large_imprint(axes, recall_firing, recall_active, se
     )
     axes[2].set_title("Position of learning")
 
-    # ax_recall_example.errorbar(
-    #     [ii for ii in range(3)],
-    #     np.nanmean(assembly_firing_rate, axis=0),
-    #     yerr=np.nanstd(assembly_firing_rate, axis=0),
-    # )
     for ax in axes:
         xticks = [0, 0.6, 1.4, 2]
         xticklabels = [
@@ -837,10 +1038,14 @@ def show_recall_results_for_large_imprint(axes, recall_firing, recall_active, se
         )
 
 
-def show_imprint_results_for_large_imprint(axes, imprint_firing_rates, imprint_sizes, seed=0):
+def show_imprint_results_for_large_imprint(
+    axes, imprint_firing_rates, imprint_sizes, seed=0
+):
     np.random.seed(seed)
     for rate in imprint_firing_rates:
-        xx = 0.6 + 0.2 * (0.5 - np.random.rand())  # we shift to 0.6 because above we shifted to 1.4
+        xx = 0.6 + 0.2 * (
+            0.5 - np.random.rand()
+        )  # we shift to 0.6 because above we shifted to 1.4
         axes[0].scatter(xx, rate, color="k", s=20)
     axes[0].scatter(0.6, np.mean(imprint_firing_rates), color="r")
 
@@ -851,163 +1056,49 @@ def show_imprint_results_for_large_imprint(axes, imprint_firing_rates, imprint_s
 
 
 def create_figure_layout_paper_fig_3():
-    fig = plt.figure(figsize=(53, 48))
-    gs = fig.add_gridspec(18, 17, hspace=1, wspace=1)
+    fig = plt.figure(figsize=(45, 20))
+    gs = fig.add_gridspec(8, 25, hspace=1, wspace=1)
 
-    ax_input_spikes_1 = fig.add_subplot(gs[:1, 4:8])
-    ax_input_spikes_2 = fig.add_subplot(gs[1:2, 4:8])
-    ax_recurrent_spikes = fig.add_subplot(gs[2:3, 4:8])
-    ax_weights_norm_firing_rate = fig.add_subplot(gs[1:3, 8:10])
-    ax_weights_norm_avg_weights = fig.add_subplot(gs[1:3, 10:12])
-    ax_weights_norm_soma_weights = fig.add_subplot(gs[1:3, 12:14])
+    ax_input_spikes_1 = fig.add_subplot(gs[:1, 5:11])
+    ax_recurrent_spikes = fig.add_subplot(gs[1:2, 5:11])
+    ax_weights_norm_firing_rate = fig.add_subplot(gs[:2, 12:16])
+    ax_weights_norm_soma_weights = fig.add_subplot(gs[:2, 17:21])
 
-    ax_norm_group_1 = fig.add_subplot(gs[4:5, 4:8])
-    ax_norm_group_2 = fig.add_subplot(gs[5:6, 4:8])
-    ax_norm_group_3 = fig.add_subplot(gs[6:7, 4:8])
-    ax_norm_group_4 = fig.add_subplot(gs[7:8, 4:8])
+    ax_norm_group_1 = fig.add_subplot(gs[:1, :2])
+    ax_norm_group_2 = fig.add_subplot(gs[:1, 2:4])
+    ax_norm_group_3 = fig.add_subplot(gs[1:2, :2])
+    ax_norm_group_4 = fig.add_subplot(gs[1:2, 2:4])
+    ax_weights_large_imprint = fig.add_subplot(gs[3:5, 5:9])
 
-    axes_for_large_imprint = [
-        [
-            fig.add_subplot(gs[8:12, :4]),
-            fig.add_subplot(gs[12:16, :4]),
-            fig.add_subplot(gs[8:12, 4:8]),
-        ]
+    ax_for_theoretical_imprint_limit = fig.add_subplot(gs[3:5, 10:14])
+    ax_recall_example_firing_rate = fig.add_subplot(gs[3:5, 15:19])
+    ax_recall_example_n_active = fig.add_subplot(gs[3:5, 20:24])
+    ax_recall_example_colorbar = fig.add_subplot(gs[3:5, 24:25])
+
+    ax_recall_projection_fr = [
+        fig.add_subplot(gs[6:8, 17:21]),
+        fig.add_subplot(gs[6:8, 12:16]),
     ]
-    ax_for_theoretical_imprint_limit = fig.add_subplot(gs[8:12, 8:12])
-    ax_recall_example_firing_rate = fig.add_subplot(gs[8:10, 12:14])
-    ax_recall_example_n_active = fig.add_subplot(gs[8:10, 14:16])
-    ax_recall_example_colorbar = fig.add_subplot(gs[8:10, 16:17])
-
-    ax_recall_example_firing_rate_over_time = fig.add_subplot(gs[10:12, 12:14])
-    ax_recall_example_n_active_over_time = fig.add_subplot(gs[10:12, 14:16])
-
-    ax_recall_projection_fr = [fig.add_subplot(gs[13:15, 5:7]), fig.add_subplot(gs[13:15, 7:9])]
-    ax_recall_projection_na = [fig.add_subplot(gs[15:17, 5:7]), fig.add_subplot(gs[15:17, 7:9])]
-
-    ax_recall_association_fr = [fig.add_subplot(gs[13:15, 10:12]), fig.add_subplot(gs[13:15, 12:14])]
-    ax_recall_association_na = [fig.add_subplot(gs[15:17, 10:12]), fig.add_subplot(gs[15:17, 12:14])]
+    ax_recall_projection_na = [
+        fig.add_subplot(gs[6:8, 6:10]),
+        fig.add_subplot(gs[6:8, 1:5]),
+    ]
 
     return (
         fig,
         (ax_norm_group_1, ax_norm_group_2, ax_norm_group_3, ax_norm_group_4),
-        (
-            ax_weights_norm_firing_rate,
-            ax_weights_norm_avg_weights,
-            None,
-            None,
-        ),
+        ax_weights_norm_firing_rate,
         ax_weights_norm_soma_weights,
         ax_input_spikes_1,
-        ax_input_spikes_2,
         ax_recurrent_spikes,
-        ax_recurrent_spikes,
-        axes_for_large_imprint,
+        ax_weights_large_imprint,
         ax_for_theoretical_imprint_limit,
         ax_recall_example_firing_rate,
         ax_recall_example_n_active,
         ax_recall_example_colorbar,
-        ax_recall_example_firing_rate_over_time,
-        ax_recall_example_n_active_over_time,
         ax_recall_projection_fr,
         ax_recall_projection_na,
-        ax_recall_association_fr,
-        ax_recall_association_na,
     )
-
-
-def show_weight_dynamics_of_assemblies_over_time(net, ax, show_plot=False):
-    all_assembly_weights = []
-
-    unique_contexts = list(np.sort(np.unique(net.parameters_for_run["all_context_ids"])))
-    # unique_assembly_ids = list(np.sort(np.unique(self.parameters_for_run["all_assembly_ids"])))
-
-    # all_weights = [[[] for ii in unique_assembly_ids] for jj in unique_contexts]
-
-    colors = [
-        ["#08519c", "#4292c6", "#9ecae1"],
-        ["#006d2c", "#41ab5d", "#a1d99b"],
-        ["#d94801", "#fd8d3c", "#fdd0a2"],
-    ]
-
-    n_assembly = [-1 for ii in unique_contexts]
-
-    for context_id, assembly_ids in zip(
-        net.parameters_for_run["all_context_ids"], net.parameters_for_run["all_assembly_ids"]
-    ):
-        assembly_neuron_ids = net.get_assembly_neuron_ids(context_id, assembly_ids)
-
-        aa = unique_contexts.index(context_id)
-        # bb = unique_assembly_ids.index(assembly_id)
-
-        n_assembly[aa] += 1
-        all_weights = []
-
-        all_post_dend_ids = []
-
-        for ii, post_dend_id in enumerate(net.rec_list):
-            post_neuron_id = post_dend_id // net.parameters["n_dend_each"]
-
-            if post_neuron_id in assembly_neuron_ids:
-                if post_dend_id % net.parameters["n_dend_each"] == context_id:
-                    # now we go through all weights and see if they come from within assembly neurons
-
-                    synapse_ids = np.where((net.area.synapses_E.j)[:] == post_dend_id)[0]
-
-                    synapse_sources = net.area.synapses_E.i[synapse_ids]
-
-                    synapses_from_assembly = [
-                        mm
-                        for mm, source in enumerate(synapse_sources)
-                        if source in assembly_neuron_ids
-                    ]
-
-                    print(
-                        "#",
-                        len(synapses_from_assembly),
-                        len(assembly_neuron_ids),
-                        post_dend_id,
-                        post_neuron_id,
-                    )
-
-                    weights = net.save_dict["pot_pot_recurrent_w"][
-                        ii
-                        * (net.parameters["n_somas"] - 1) : (ii + 1)
-                        * (net.parameters["n_somas"] - 1),
-                        :,
-                    ]  # n_somas - 1, since we have no self connection
-
-                    weights_from_within = weights[synapses_from_assembly, :]
-
-                    # all_weights[aa][bb].append(weights_from_within)
-                    all_weights.append(weights_from_within)
-
-        try:
-            # all_weights[aa][bb] = np.vstack(all_weights[aa][bb])
-            # these_weights = all_weights[aa][bb]
-            all_weights = np.vstack(all_weights)
-            these_weights = all_weights
-            ax.plot(
-                net.save_dict["weights_t"],
-                np.mean(these_weights, axis=0),
-                label=f"ctxt:{context_id} | assembly:{assembly_ids[0]} - {assembly_ids[1]}",
-                color=colors[aa][n_assembly[aa]],
-            )
-
-            # ax.plot(
-            #     net.save_dict["weights_t"],
-            #     (these_weights.T)[:, :40],
-            #     color=colors[aa][bb],
-            #     lw=0.8,
-            #     alpha=0.4,
-            # )
-        except ValueError:
-            pass
-
-    ax.legend()
-    ax.set(xlabel="Time in ms", ylabel="average weight within assembly")
-
-    if show_plot:
-        plt.show()
 
 
 def theoretical_imprint_limit(ax=None, n_runs=1000, show_plot=False):
@@ -1020,7 +1111,6 @@ def theoretical_imprint_limit(ax=None, n_runs=1000, show_plot=False):
 
     estimated_size_from_rates_and_weights, _ = load_recurrent_inhibition_comparison(
         n_seeds=500,
-        run_association=False,
     )
 
     all_empirical_assembly_sizes = estimated_size_from_rates_and_weights[:, 0].astype(
@@ -1028,8 +1118,6 @@ def theoretical_imprint_limit(ax=None, n_runs=1000, show_plot=False):
     )  # results with inhibition 'on'
 
     for run in range(n_runs):
-        all_used_ids = []
-
         all_assembly_ids = [[] for _ in range(20)]
         for imprint_id in range(20):
             # vary the assembly size
@@ -1046,7 +1134,12 @@ def theoretical_imprint_limit(ax=None, n_runs=1000, show_plot=False):
         all_numbers[run, :] = np.cumsum([len(ai) for ai in all_assembly_ids])
 
     x = [ii + 1 for ii in range(all_numbers.shape[1])]
-    ax.errorbar(x, np.mean(all_numbers, axis=0), yerr=np.std(all_numbers, axis=0), label="Theory")
+    ax.errorbar(
+        x,
+        np.mean(all_numbers, axis=0),
+        yerr=np.std(all_numbers, axis=0),
+        label="Theory",
+    )
 
     ax.set(
         xlabel="# number of imprint",
@@ -1056,68 +1149,6 @@ def theoretical_imprint_limit(ax=None, n_runs=1000, show_plot=False):
 
     if show_plot:
         plt.show()
-
-
-def load_recurrent_inhibition_comparison(
-    n_seeds=500,
-    run_association=False,
-):
-    estimated_size_from_rates_and_weights = np.zeros((n_seeds, 2)) * float("NaN")
-    estimated_size_from_weights = np.zeros((n_seeds, 2)) * float("NaN")
-
-    for seed_id, seed in enumerate(range(n_seeds)):
-        print(f"START WITH {seed}")
-        save_file_name = "recurrent_inhibition_multicore_run"
-        assembly_ids = [(0, -1)]
-        if run_association:
-            assembly_ids = [(0, 0)]
-            save_file_name += "_association"
-        contexts = [0]
-
-        parameter_dict = {}
-
-        parameters_for_run = {
-            "runtime_imprint": 32 * second,  # 12
-            "runtime_baseline": 1.5 * second,
-            "seed": seed,
-            "all_assembly_ids": assembly_ids,
-            "all_context_ids": contexts,
-            "debug_mode": False,
-            "save_weights": True,
-            "monitor_dt": 500 * ms,
-            "save_most_active_neuron_weights": True,  ###
-            "no_recall": True,
-        }
-
-        for jj in range(2):
-            if jj == 1:
-                parameter_dict["rec_inhib_rate"] = 0 * Hz
-
-            net = NetworkMultipleContextsMultipleAssemblies(
-                parameter_file_name="parameters",
-                parameters_for_run=parameters_for_run,
-                save_file_name=save_file_name,
-                parameter_dict=parameter_dict,
-                only_load_results=True,
-            )
-            net.run(report_style="text", report_period=30 * second)
-
-            if not net.save_dict:
-                continue
-
-            _, assembly_sizes_by_weights = net.sort_neurons_by_weights(show_plot=False)
-            _, assembly_neuron_ids, _ = net.sort_neurons_by_firing_rate()
-            # not a good naming convention, this method acutally uses to sort by weight and rate
-
-            estimated_size_from_rates_and_weights[seed_id, jj] = len(assembly_neuron_ids)
-            estimated_size_from_weights[seed_id, jj] = assembly_sizes_by_weights[0]
-
-        for jj in range(2):
-            if np.isnan(estimated_size_from_rates_and_weights[seed_id, jj]):
-                estimated_size_from_rates_and_weights[seed_id, (jj + 1) % 2] = float("nan")
-                estimated_size_from_weights[seed_id, (jj + 1) % 2] = float("nan")
-
-    return (estimated_size_from_rates_and_weights, estimated_size_from_weights)
 
 
 def run_recall_for_multiple_instances(
@@ -1130,6 +1161,7 @@ def run_recall_for_multiple_instances(
     specific_seed=None,
     only_run_imprint=False,
     all_network_seeds=None,
+    normalization_clocks=None,
 ):
     parameters_for_run = {
         "runtime_imprint": 30 * second,  # 40
@@ -1165,8 +1197,10 @@ def run_recall_for_multiple_instances(
     net = NetworkRecall(
         parameter_file_name="parameters",
         parameters_for_run=parameters_for_run,
-        save_file_name="recall_results_figure_4",
+        save_file_name="data_Fig_3_recall",
         parameter_dict=parameter_dict,
+        normalization_clocks=normalization_clocks,
+        figure_name=FIGURE_NAME,
     )
 
     avg_firing_rates = np.zeros(
@@ -1181,8 +1215,12 @@ def run_recall_for_multiple_instances(
     ) * float("nan")
     n_active_neurons = np.zeros_like(avg_firing_rates) * float("nan")
 
-    avg_firing_rates_end_of_imprint = np.zeros((len(all_network_seeds), 2)) * float("nan")
-    n_active_neurons_end_of_imprint = np.zeros_like(avg_firing_rates_end_of_imprint) * float("nan")
+    avg_firing_rates_end_of_imprint = np.zeros((len(all_network_seeds), 2)) * float(
+        "nan"
+    )
+    n_active_neurons_end_of_imprint = np.zeros_like(
+        avg_firing_rates_end_of_imprint
+    ) * float("nan")
 
     for network_seed_id, network_seed in enumerate(all_network_seeds):
         if specific_seed is not None:
@@ -1194,8 +1232,12 @@ def run_recall_for_multiple_instances(
 
         net.run_imprint(report_style="text", report_period=1000 * second)
 
-        network_filename = net.save_dict["filename_for_stored_network"].decode("utf-8") + "_0"
-        net.network.restore(filename=net.get_path_to_stored_networks(file_name=network_filename))
+        network_filename = (
+            net.save_dict["filename_for_stored_network"].decode("utf-8") + "_0"
+        )
+        net.network.restore(
+            filename=net.get_path_to_stored_networks(file_name=network_filename)
+        )
 
         if only_run_imprint:
             return
@@ -1229,22 +1271,19 @@ def run_recall_for_multiple_instances(
             )
 
             avg_firing_rates_end_of_imprint[network_seed_id, 0] = avg_fr_after_imprint
-            avg_firing_rates_end_of_imprint[
-                network_seed_id, 1
-            ] = avg_firing_rate_not_in_assembly_after_imprint
+            avg_firing_rates_end_of_imprint[network_seed_id, 1] = (
+                avg_firing_rate_not_in_assembly_after_imprint
+            )
             n_active_neurons_end_of_imprint[network_seed_id, 0] = n_act_n_after_imprint
-            n_active_neurons_end_of_imprint[
-                network_seed_id, 1
-            ] = n_active_neurons_not_in_assembly_after_imprint
-
-            print(len(a), len(b))
+            n_active_neurons_end_of_imprint[network_seed_id, 1] = (
+                n_active_neurons_not_in_assembly_after_imprint
+            )
 
         for seed_id, recall_seed in enumerate(all_recall_seeds):
             for input_id, recall_input in enumerate(all_recall_inputs):
                 for context_id, recall_context in enumerate(all_recall_contexts):
                     x_values = []
                     for active_id, recall_size in enumerate(all_recall_sizes):
-                        print("######:", seed_id, input_id, active_id)
                         run_recall_after_imprint = True
 
                         parameters_for_run.update(
@@ -1267,7 +1306,9 @@ def run_recall_for_multiple_instances(
                             parameters_for_run["assembly_size_recall"] = recall_size
 
                         if change_firing_rate:
-                            x_values.append(parameters_for_run["assembly_firing_rate_recall"])
+                            x_values.append(
+                                parameters_for_run["assembly_firing_rate_recall"]
+                            )
                         else:
                             x_values.append(parameters_for_run["assembly_size_recall"])
                             if run_association:
@@ -1275,15 +1316,7 @@ def run_recall_for_multiple_instances(
 
                         net.parameters_for_run.update(parameters_for_run)
 
-                        # net.run_imprint(report_style="text")
-                        print(net.save_dict)
                         net.run_recall(report_style="text")
-
-                        # print(rmoe)
-                        # if remove_n_neurons_from_first_assembly > 6:
-                        #     net.show_spike_rasters(
-                        #         show_plot=True, highlight_neuron_ids=[[0, neurons_to_silence]]
-                        #     )
 
                         if not net.save_dict or not show_results:
                             continue
@@ -1292,7 +1325,8 @@ def run_recall_for_multiple_instances(
                             1 + net.parameters_for_run["recall_after_imprint_id"]
                         )
                         end_recall = (
-                            start_recall + net.parameters_for_run["runtime_recall"] / msecond
+                            start_recall
+                            + net.parameters_for_run["runtime_recall"] / msecond
                         )
 
                         for area_id, area in enumerate(net.all_areas):
@@ -1318,17 +1352,37 @@ def run_recall_for_multiple_instances(
                                 continue
 
                             avg_firing_rates[
-                                network_seed_id, input_id, seed_id, active_id, context_id, 0
+                                network_seed_id,
+                                input_id,
+                                seed_id,
+                                active_id,
+                                context_id,
+                                0,
                             ] = avg_fr
                             avg_firing_rates[
-                                network_seed_id, input_id, seed_id, active_id, context_id, 1
+                                network_seed_id,
+                                input_id,
+                                seed_id,
+                                active_id,
+                                context_id,
+                                1,
                             ] = avg_firing_rate_not_in_assembly
 
                             n_active_neurons[
-                                network_seed_id, input_id, seed_id, active_id, context_id, 0
+                                network_seed_id,
+                                input_id,
+                                seed_id,
+                                active_id,
+                                context_id,
+                                0,
                             ] = n_act_n
                             n_active_neurons[
-                                network_seed_id, input_id, seed_id, active_id, context_id, 1
+                                network_seed_id,
+                                input_id,
+                                seed_id,
+                                active_id,
+                                context_id,
+                                1,
                             ] = n_active_neurons_not_in_assembly
 
     if change_firing_rate:
@@ -1357,13 +1411,12 @@ def run_recall_for_multiple_instances(
         if axes is None:
             fig, (ax1, ax2) = plt.subplots(2)
         else:
-            (ax1, ax2) = axes
+            ax1, ax2 = axes
 
         color_for_correct_context = "#ec7014"
         color_for_incorrect_context = "#6baed6"
 
         colors = [color_for_correct_context, color_for_incorrect_context]
-        # for kk in range(2):
 
         data_fr = np.nanmean(np.nanmean(avg_firing_rates[:, :, :, :, :, in_out], 1), 1)
         data_na = np.nanmean(np.nanmean(n_active_neurons[:, :, :, :, :, in_out], 1), 1)
@@ -1388,9 +1441,6 @@ def run_recall_for_multiple_instances(
                         label=f"context {cc}",
                     )
 
-        title = "projection"
-        if run_association:
-            title = "association"
         ax1.set(
             xlabel=xlabel,
             ylabel=f"avg firing of assembly neurons",
@@ -1405,5 +1455,121 @@ def run_recall_for_multiple_instances(
             plt.show()
 
 
+def get_dendritic_current_mean_and_std(
+    net, use_non_gated=True, axes_for_currents_and_dendrites=None
+):
+
+    if axes_for_currents_and_dendrites is None:
+        fig, (ax1, ax2) = plt.subplots(2, sharey=True)
+
+    else:
+        ax1, ax2, _, _ = axes_for_currents_and_dendrites
+
+    colors = [
+        "#f7fcf5",
+        "#e5f5e0",
+        "#c7e9c0",
+        "#a1d99b",
+        "#74c476",
+        "#41ab5d",
+        "#238b45",
+        "#006d2c",
+        "#00441b",
+    ]
+    name = "gated"
+    for ii, values in enumerate(net.save_dict[f"voltage_dends_{name}"]):
+        count = net.save_dict[f"counts_{ii}_{name}"]
+        ax1.plot(
+            net.save_dict["x_time"],
+            values,
+            label=f"{count} active inputs",
+            color=colors[ii],
+        )
+    ax1.set_xlabel("Time in ms")
+    ax1.set_ylabel("gated Dendritic voltage in mV")
+    ax1.set_ylim([-80, 0])
+
+    name = "non_gated"
+
+    colors = [
+        "#f7fbff",
+        "#deebf7",
+        "#c6dbef",
+        "#9ecae1",
+        "#6baed6",
+        "#4292c6",
+        "#2171b5",
+        "#08519c",
+        "#08306b",
+    ]
+    for ii, values in enumerate(net.save_dict[f"voltage_dends_{name}"]):
+        count = net.save_dict[f"counts_{ii}_{name}"]
+        ax2.plot(
+            net.save_dict["x_time"],
+            values,
+            label=f"{count} active inputs",
+            color=colors[ii],
+        )
+    ax2.set_xlabel("Time in ms")
+    ax2.set_ylabel("non-gated Dendritic voltage in mV")
+    ax2.set_ylim([-80, 0])
+
+    ax1.legend()
+    ax2.legend()
+
+    name = "non_gated"
+
+    mean_val_of_dends = np.mean(net.save_dict[f"voltage_dends_{name}"])
+    mean_val_of_somas = np.mean(net.save_dict[f"voltage_soma_{name}"])
+    gEachCouple = net.parameters["gEachCouple_pyr"]
+
+    print(mean_val_of_dends * mV)
+    print(mean_val_of_somas * mV)
+
+    mean_current_flowing = (
+        -5 * gEachCouple * (mean_val_of_dends * mV - mean_val_of_somas * mV)
+    )
+
+    print(mean_current_flowing)
+
+    all_currents = (
+        -5
+        * gEachCouple
+        * (
+            net.save_dict[f"voltage_dends_{name}"] * mV
+            - net.save_dict[f"voltage_soma_{name}"] * mV
+        )
+    )
+
+    mean = np.mean(all_currents)
+    std = np.std(all_currents)
+    print(mean, std)
+
+    # - gLSoma_pyr*(V-vRest_pyr) + gEachCouple*(V_pre-V_post)
+
+    # - gLSoma_pyr * V - gEachCouple * V + gLSoma_pyr * vRest_pyr + gEachCouple * V_pre
+
+    # - ( V * x)
+
+    # x = (gLSoma_pyr + gEachCouple)
+
+    # - (V * x) + x * (a/x)
+
+    x = net.parameters["gLSoma_pyr"] + 5 * net.parameters["gEachCouple_pyr"]
+
+    a = (
+        net.parameters["gLSoma_pyr"] * net.parameters["vRest_pyr"]
+        + 5 * net.parameters["gEachCouple_pyr"] * mean_val_of_dends * mV
+    )
+
+    new_vrest = a / x
+
+    # gL = - x * (V - new_vrest)
+
+    print(x)
+    print(a)
+    print(new_vrest)
+
+
 if __name__ == "__main__":
-    paper_figure_3(only_load_results=True)
+    Fig_3(only_load_results=True)

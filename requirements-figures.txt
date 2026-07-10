@@ -1,0 +1,5 @@
+# Optional dependencies for Figure 6 and Figure 8.
+# Install with platform-appropriate PyTorch wheels when needed.
+matplotlib-venn==1.1.2
+torch==2.2.2
+torchvision==0.17.2
