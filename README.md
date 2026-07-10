@@ -1,5 +1,6 @@
 # Assembly-based computations through contextual dendritic gating of plasticity 
 
+[![DOI](https://zenodo.org/badge/1006675928.svg)](https://doi.org/10.5281/zenodo.21302219)
 [![Cached simulation data: Zenodo](https://img.shields.io/badge/Cached%20simulation%20data-Zenodo-1682D4)](https://doi.org/10.5281/zenodo.21299329)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Code style: Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
@@ -64,8 +65,8 @@ platform. On first use, Figure 6 downloads EMNIST to
 ### Conda
 
 ```bash
-git clone <REPOSITORY_URL>
-cd <REPOSITORY_DIRECTORY>
+git clone git@github.com:computational-neural-circuits/contextual-dendritic-gating.git
+cd contextual-dendritic-gating
 conda env create -f environment.yml
 conda activate contextual-dendritic-gating
 python -m pip install -e .
@@ -80,8 +81,8 @@ python -m pip install -e ".[figures]"
 ### Pip
 
 ```bash
-git clone <REPOSITORY_URL>
-cd <REPOSITORY_DIRECTORY>
+git clone git@github.com:computational-neural-circuits/contextual-dendritic-gating.git
+cd contextual-dendritic-gating
 python3.10 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
